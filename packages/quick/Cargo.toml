@@ -1,0 +1,12 @@
+[package]
+name = "quick"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+quick_html = { version = "0.1.0", path = "../html" }
+quick_layout = { version = "0.1.0", path = "../layout" }
+quick_paint = { version = "0.1.0", path = "../paint" }
+quick_style = { version = "0.1.0", path = "../style" }
+
+
