@@ -1,9 +1,16 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+pub struct Attribute {
+    pub name: String,
+    pub value: String,
+}
+
 pub struct Tag {
-    kind: TagKind,
-    name: String,
+    pub kind: TagKind,
+    pub name: String,
+    pub self_closing: bool,
+    pub attributes: Vec<Attribute>,
 }
 
 impl Tag {
@@ -11,7 +18,19 @@ impl Tag {
         Tag {
             kind,
             name: String::new(),
+            self_closing: false,
+            attributes: Vec::new(),
         }
+    }
+
+    pub(super) fn update_attribute(&mut self, f: impl Fn(&mut Attribute)) {
+        let len = self.attributes.len();
+
+        f(&mut self.attributes[len - 1])
+    }
+
+    pub(super) fn create_attribute(&mut self, name: String, value: String) {
+        self.attributes.push(Attribute { name, value });
     }
 
     pub(super) fn append_name(&mut self, character: char) {
