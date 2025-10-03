@@ -1,11 +1,20 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+
+#[derive(Debug)]
+pub enum TagKind {
+    Start,
+    End,
+}
+
+#[derive(Debug)]
 pub struct Attribute {
     pub name: String,
     pub value: String,
 }
 
+#[derive(Debug)]
 pub struct Tag {
     pub kind: TagKind,
     pub name: String,
@@ -43,11 +52,7 @@ impl Tag {
     }
 }
 
-pub enum TagKind {
-    Start,
-    End,
-}
-
+#[derive(Debug)]
 pub enum Token<'a> {
     Tag(Tag),
     CharacterToken(char),
@@ -64,6 +69,8 @@ pub trait TokenSink {
             self.process(token);
         }
     }
+
+    fn adjusted_node_namespace(&self) -> bool { false }
 }
 
 

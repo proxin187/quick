@@ -6,7 +6,8 @@ use token::{Tag, TagKind, Token, TokenSink};
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::io::{BufRead, Bytes};
+use std::str::Chars;
+use std::iter::Peekable;
 
 struct Data {
     tag: Rc<RefCell<Tag>>,
@@ -26,41 +27,83 @@ impl Data {
     }
 }
 
-// TODO: we have to implement a macro that allows us to read the buffer
+struct Buffer<'a> {
+    chars: Peekable<Chars<'a>>,
+    last: Option<Peekable<Chars<'a>>>,
+}
 
-pub struct Tokenizer<Sink: TokenSink, Buf: BufRead> {
-    buffer: Bytes<Buf>,
-    sink: Sink,
+impl<'a> Iterator for Buffer<'a> {
+    type Item = char;
+
+    fn next(&mut self) -> Option<char> {
+        self.last.replace(self.chars.clone());
+
+        self.chars.next()
+    }
+}
+
+impl<'a> Buffer<'a> {
+    pub fn new(chars: Chars<'a>) -> Buffer<'a> {
+        Buffer {
+            chars: chars.peekable(),
+            last: None,
+        }
+    }
+
+    fn reconsume(&mut self) {
+        if let Some(chars) = self.last.take() {
+            self.chars = chars;
+        }
+    }
+
+    fn is_empty(&mut self) -> bool {
+        self.chars.peek().is_none()
+    }
+
+    // NOTE: this is case insensitive, technically its not completely compliant with the HTML standard.
+    fn peek_exact(&mut self, string: &str) -> bool {
+        self.chars.clone()
+            .take(string.len())
+            .map(|c| c.to_ascii_lowercase())
+            .eq(string.chars())
+            .then(|| self.chars.nth(string.len() - 1))
+            .is_some()
+    }
+}
+
+pub struct Tokenizer<'a, Sink: TokenSink> {
+    sink: &'a mut Sink,
+    buffer: Buffer<'a>,
     state: State,
     data: Data,
 }
 
-impl<Sink: TokenSink, Buf: BufRead> Tokenizer<Sink, Buf> {
-    pub fn new(buffer: Buf, sink: Sink) -> Tokenizer<Sink, Buf> {
+impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
+    pub fn new(sink: &'a mut Sink, chars: Chars<'a>) -> Tokenizer<'a, Sink> {
         Tokenizer {
-            buffer: buffer.bytes(),
             sink,
+            buffer: Buffer::new(chars),
             state: State::Data,
             data: Data::new(),
         }
     }
 
     #[inline]
-    fn reconsume(&mut self, input: char, state: State) {
-        self.state = state;
+    fn reconsume(&mut self, state: State) {
+        self.buffer.reconsume();
 
-        self.step(input);
+        self.state = state;
     }
 
     #[inline]
-    fn bogus_comment(&mut self, input: char) {
+    fn bogus_comment(&mut self) {
         self.sink.emit([Token::Comment("")]);
 
-        self.reconsume(input, State::BogusComment);
+        self.reconsume(State::BogusComment);
     }
 
     #[inline]
-    fn set_state_and_emit<'a, T: IntoIterator<Item = Token<'a>>>(
+    fn set_state_and_emit<'t, T: IntoIterator<Item = Token<'t>>>(
         &mut self,
         state: State,
         tokens: T,
@@ -75,251 +118,268 @@ impl<Sink: TokenSink, Buf: BufRead> Tokenizer<Sink, Buf> {
         self.data.last.replace(Rc::clone(&self.data.tag));
     }
 
-    // TODO: handle eof
-    pub fn end(&self) {}
+    pub fn wait(&mut self) {
+        while !self.buffer.is_empty() {
+            self.step();
+        }
+    }
 
-    pub fn step(&mut self, input: char) {
+    pub fn step(&mut self) {
         match self.state {
             // https://html.spec.whatwg.org/multipage/parsing.html#data-state
-            State::Data => match input {
-                '&' => todo!(),
-                '<' => self.state = State::TagOpen,
-                c => self.sink.emit([Token::CharacterToken(c)]),
+            State::Data => match self.buffer.next() {
+                Some('&') => todo!(),
+                Some('<') => self.state = State::TagOpen,
+                Some(c) => self.sink.emit([Token::CharacterToken(c)]),
+                None => self.sink.eof(),
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#rcdata-state
-            State::RawData(kind) => match input {
-                '&' if kind == RawKind::RcData => todo!(),
-                '<' => self.state = State::RawLessThanSign(kind),
-                '\0' => self.sink.emit([Token::CharacterToken('\u{fffd}')]),
-                c => self.sink.emit([Token::CharacterToken(c)]),
+            State::RawData(kind) => match self.buffer.next() {
+                Some('&') if kind == RawKind::RcData => todo!(),
+                Some('<') => self.state = State::RawLessThanSign(kind),
+                Some('\0') => self.sink.emit([Token::CharacterToken('\u{fffd}')]),
+                Some(c) => self.sink.emit([Token::CharacterToken(c)]),
+                None => self.sink.eof(),
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#plaintext-state
-            State::Plaintext => match input {
-                '\0' => self.sink.emit([Token::CharacterToken('\u{fffd}')]),
-                c => self.sink.emit([Token::CharacterToken(c)]),
+            State::Plaintext => match self.buffer.next() {
+                Some('\0') => self.sink.emit([Token::CharacterToken('\u{fffd}')]),
+                Some(c) => self.sink.emit([Token::CharacterToken(c)]),
+                None => self.sink.eof(),
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#tag-open-state
-            State::TagOpen => match input {
-                '!' => self.state = State::MarkupDeclarationOpen,
-                '/' => self.state = State::EndTagOpen,
-                '?' => self.bogus_comment(input),
-                c if c.is_ascii_alphabetic() => {
+            State::TagOpen => match self.buffer.next() {
+                Some('!') => self.state = State::MarkupDeclarationOpen,
+                Some('/') => self.state = State::EndTagOpen,
+                Some('?') => self.bogus_comment(),
+                Some(c) if c.is_ascii_alphabetic() => {
                     self.data.tag = Rc::new(RefCell::new(Tag::new(TagKind::Start)));
 
-                    self.reconsume(input, State::TagName);
+                    self.reconsume(State::TagName);
                 },
-                _ => {
+                next => {
                     self.sink.emit([Token::CharacterToken('<')]);
 
-                    self.reconsume(input, State::Data);
+                    if next.is_some() {
+                        self.reconsume(State::Data);
+                    } else {
+                        self.sink.eof();
+                    }
                 },
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#end-tag-open-state
-            State::EndTagOpen => match input {
-                c if c.is_ascii_alphabetic() => {
+            State::EndTagOpen => match self.buffer.next() {
+                Some(c) if c.is_ascii_alphabetic() => {
                     self.data.tag = Rc::new(RefCell::new(Tag::new(TagKind::End)));
 
-                    self.reconsume(input, State::TagName);
+                    self.reconsume(State::TagName);
                 },
-                '>' => self.state = State::Data,
-                _ => self.bogus_comment(input),
+                Some('>') => self.state = State::Data,
+                Some(_) => self.bogus_comment(),
+                None => {
+                    self.sink.emit([Token::CharacterToken('<'), Token::CharacterToken('/')]);
+
+                    self.sink.eof();
+                },
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#tag-name-state
-            State::TagName => match input {
-                '\u{0009}' | '\u{000a}' | '\u{000c}' | '\u{0020}' => self.state = State::BeforeAttributeName,
-                '/' => self.state = State::SelfClosingStartTag,
-                '>' => {
+            State::TagName => match self.buffer.next() {
+                Some('\u{0009}' | '\u{000a}' | '\u{000c}' | '\u{0020}') => self.state = State::BeforeAttributeName,
+                Some('/') => self.state = State::SelfClosingStartTag,
+                Some('>') => {
                     self.state = State::Data;
 
                     self.emit_tag();
                 },
-                '\0' => self.data.tag.borrow_mut().append_name('\u{fffd}'),
-                c => self.data.tag.borrow_mut().append_name(c.to_ascii_lowercase()),
+                Some('\0') => self.data.tag.borrow_mut().append_name('\u{fffd}'),
+                Some(c) => self.data.tag.borrow_mut().append_name(c.to_ascii_lowercase()),
+                None => self.sink.eof(),
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#rcdata-less-than-sign-state
-            State::RawLessThanSign(kind) => match input {
-                '/' => {
+            State::RawLessThanSign(kind) => match self.buffer.next() {
+                Some('/') => {
                     self.data.temp.drain(..);
 
                     self.state = State::RawEndTagOpen(kind);
                 },
-                '!' if kind == RawKind::ScriptData => self.set_state_and_emit(
+                Some('!') if kind == RawKind::ScriptData => self.set_state_and_emit(
                     State::ScriptDataEscapeStart(EscapeKind::Escaped),
                     [Token::CharacterToken('<'), Token::CharacterToken('!')],
                 ),
                 _ => {
                     self.sink.emit([Token::CharacterToken('<')]);
 
-                    self.reconsume(input, State::RawData(kind));
+                    self.reconsume(State::RawData(kind));
                 },
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#rcdata-end-tag-open-state
-            State::RawEndTagOpen(kind) => match input {
-                c if c.is_ascii_alphabetic() => {
+            State::RawEndTagOpen(kind) => match self.buffer.next() {
+                Some(c) if c.is_ascii_alphabetic() => {
                     self.data.tag = Rc::new(RefCell::new(Tag::new(TagKind::End)));
 
-                    self.reconsume(input, State::RawEndTagName(kind));
+                    self.reconsume(State::RawEndTagName(kind));
                 },
                 _ => {
-                    self.sink
-                        .emit([Token::CharacterToken('<'), Token::CharacterToken('/')]);
+                    self.sink.emit([Token::CharacterToken('<'), Token::CharacterToken('/')]);
 
-                    self.reconsume(input, State::RawData(kind));
+                    self.reconsume(State::RawData(kind));
                 },
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#rcdata-end-tag-name-state
-            State::RawEndTagName(kind) => match input {
-                '\u{0009}' | '\u{000a}' | '\u{000c}' | '\u{0020}'
+            State::RawEndTagName(kind) => match self.buffer.next() {
+                Some('\u{0009}' | '\u{000a}' | '\u{000c}' | '\u{0020}')
                     if self.data.tag.borrow().has_appropriate_end_tag(self.data.last.clone()) => self.state = State::BeforeAttributeName,
-                '/' if self.data.tag.borrow().has_appropriate_end_tag(self.data.last.clone()) => self.state = State::SelfClosingStartTag,
-                '>' if self.data.tag.borrow().has_appropriate_end_tag(self.data.last.clone()) => {
+                Some('/') if self.data.tag.borrow().has_appropriate_end_tag(self.data.last.clone()) => self.state = State::SelfClosingStartTag,
+                Some('>') if self.data.tag.borrow().has_appropriate_end_tag(self.data.last.clone()) => {
                     self.state = State::Data;
 
                     self.emit_tag();
                 },
-                c if c.is_ascii_alphabetic() => {
+                Some(c) if c.is_ascii_alphabetic() => {
                     self.data.tag.borrow_mut().append_name(c.to_ascii_lowercase());
 
                     self.data.temp.push(c);
                 }
                 _ => {
-                    self.sink
-                        .emit([Token::CharacterToken('<'), Token::CharacterToken('/')]);
+                    self.sink.emit([Token::CharacterToken('<'), Token::CharacterToken('/')]);
 
-                    self.sink
-                        .emit(self.data.temp.chars().map(|c| Token::CharacterToken(c)));
+                    self.sink.emit(self.data.temp.chars().map(|c| Token::CharacterToken(c)));
 
-                    self.reconsume(input, State::RawData(kind));
+                    self.reconsume(State::RawData(kind));
                 },
             },
 
             State::ScriptDataEscapeStart(kind) => match kind {
                 // https://html.spec.whatwg.org/multipage/parsing.html#script-data-escape-start-state
-                EscapeKind::Escaped => match input {
-                    '-' => self.set_state_and_emit(State::ScriptDataEscapeStartDash, [Token::CharacterToken('-')]),
-                    _ => self.reconsume(input, State::RawData(RawKind::ScriptData)),
+                EscapeKind::Escaped => match self.buffer.next() {
+                    Some('-') => self.set_state_and_emit(State::ScriptDataEscapeStartDash, [Token::CharacterToken('-')]),
+                    _ => self.reconsume(State::RawData(RawKind::ScriptData)),
                 },
 
                 // https://html.spec.whatwg.org/multipage/parsing.html#script-data-double-escape-start-state
-                EscapeKind::DoubleEscaped => match input {
-                    '\t' | '\n' | '\x0C' | ' ' | '/' | '>' => if self.data.temp.as_str() == "script" {
-                        self.set_state_and_emit(State::ScriptDataEscaped(EscapeKind::DoubleEscaped), [Token::CharacterToken(input)]);
-                    } else {
-                        self.set_state_and_emit(State::ScriptDataEscaped(EscapeKind::Escaped), [Token::CharacterToken(input)]);
+                EscapeKind::DoubleEscaped => match self.buffer.next() {
+                    Some(c) if matches!(c, '\t' | '\n' | '\x0C' | ' ' | '/' | '>') && self.data.temp.as_str() == "script" => {
+                        self.set_state_and_emit(State::ScriptDataEscaped(EscapeKind::DoubleEscaped), [Token::CharacterToken(c)]);
                     },
-                    c if c.is_ascii_alphabetic() => {
+                    Some(c) if matches!(c, '\t' | '\n' | '\x0C' | ' ' | '/' | '>') && self.data.temp.as_str() != "script" => {
+                        self.set_state_and_emit(State::ScriptDataEscaped(EscapeKind::Escaped), [Token::CharacterToken(c)]);
+                    },
+                    Some(c) if c.is_ascii_alphabetic() => {
                         self.data.temp.push(c.to_ascii_lowercase());
 
                         self.sink.emit([Token::CharacterToken(c)]);
                     },
-                    _ => self.reconsume(input, State::ScriptDataEscaped(EscapeKind::Escaped)),
+                    _ => self.reconsume(State::ScriptDataEscaped(EscapeKind::Escaped)),
                 },
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#script-data-escape-start-dash-state
-            State::ScriptDataEscapeStartDash => match input {
-                '-' => self.set_state_and_emit(State::ScriptDataEscapedDashDash(EscapeKind::Escaped), [Token::CharacterToken('-')]),
-                _ => self.reconsume(input, State::RawData(RawKind::ScriptData)),
+            State::ScriptDataEscapeStartDash => match self.buffer.next() {
+                Some('-') => self.set_state_and_emit(State::ScriptDataEscapedDashDash(EscapeKind::Escaped), [Token::CharacterToken('-')]),
+                _ => self.reconsume(State::RawData(RawKind::ScriptData)),
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#script-data-escaped-state
-            State::ScriptDataEscaped(kind) => match input {
-                '-' => self.set_state_and_emit(State::ScriptDataEscapedDash(kind), [Token::CharacterToken('-')]),
-                '<' => {
+            State::ScriptDataEscaped(kind) => match self.buffer.next() {
+                Some('-') => self.set_state_and_emit(State::ScriptDataEscapedDash(kind), [Token::CharacterToken('-')]),
+                Some('<') => {
                     self.state = State::ScriptDataEscapedLessThanSign(kind);
 
                     if kind == EscapeKind::DoubleEscaped {
                         self.sink.emit([Token::CharacterToken('<')]);
                     }
                 }
-                '\0' => self.sink.emit([Token::CharacterToken('\u{fffd}')]),
-                _ => self.sink.emit([Token::CharacterToken(input)]),
+                Some('\0') => self.sink.emit([Token::CharacterToken('\u{fffd}')]),
+                Some(c) => self.sink.emit([Token::CharacterToken(c)]),
+                None => self.sink.eof(),
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#script-data-escaped-dash-state
-            State::ScriptDataEscapedDash(kind) => match input {
-                '-' => self.set_state_and_emit(State::ScriptDataEscapedDashDash(kind), [Token::CharacterToken('-')]),
-                '<' => {
+            State::ScriptDataEscapedDash(kind) => match self.buffer.next() {
+                Some('-') => self.set_state_and_emit(State::ScriptDataEscapedDashDash(kind), [Token::CharacterToken('-')]),
+                Some('<') => {
                     self.state = State::ScriptDataEscapedLessThanSign(kind);
 
                     if kind == EscapeKind::DoubleEscaped {
                         self.sink.emit([Token::CharacterToken('<')]);
                     }
                 },
-                '\0' => self.set_state_and_emit(State::ScriptDataEscaped(kind), [Token::CharacterToken('\u{fffd}')]),
-                _ => self.set_state_and_emit(State::ScriptDataEscaped(kind), [Token::CharacterToken(input)]),
+                Some('\0') => self.set_state_and_emit(State::ScriptDataEscaped(kind), [Token::CharacterToken('\u{fffd}')]),
+                Some(c) => self.set_state_and_emit(State::ScriptDataEscaped(kind), [Token::CharacterToken(c)]),
+                None => self.sink.eof(),
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#script-data-escaped-dash-dash-state
-            State::ScriptDataEscapedDashDash(kind) => match input {
-                '-' => self.sink.emit([Token::CharacterToken('-')]),
-                '<' => {
+            State::ScriptDataEscapedDashDash(kind) => match self.buffer.next() {
+                Some('-') => self.sink.emit([Token::CharacterToken('-')]),
+                Some('<') => {
                     self.state = State::ScriptDataEscapedLessThanSign(kind);
 
                     if kind == EscapeKind::DoubleEscaped {
                         self.sink.emit([Token::CharacterToken('<')]);
                     }
                 },
-                '>' => self.set_state_and_emit(State::RawData(RawKind::ScriptData), [Token::CharacterToken('>')]),
-                '\0' => self.set_state_and_emit(State::ScriptDataEscaped(kind), [Token::CharacterToken('\u{fffd}')]),
-                _ => self.set_state_and_emit(State::ScriptDataEscaped(kind), [Token::CharacterToken(input)]),
+                Some('>') => self.set_state_and_emit(State::RawData(RawKind::ScriptData), [Token::CharacterToken('>')]),
+                Some('\0') => self.set_state_and_emit(State::ScriptDataEscaped(kind), [Token::CharacterToken('\u{fffd}')]),
+                Some(c) => self.set_state_and_emit(State::ScriptDataEscaped(kind), [Token::CharacterToken(c)]),
+                None => self.sink.eof(),
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#script-data-escaped-less-than-sign-state
-            State::ScriptDataEscapedLessThanSign(kind) => match input {
-                '/' => {
+            State::ScriptDataEscapedLessThanSign(kind) => match self.buffer.next() {
+                Some('/') => {
                     self.data.temp.drain(..);
 
                     self.state = State::ScriptDataEscapedEndTagOpen;
                 },
-                c if c.is_ascii_alphabetic() && kind == EscapeKind::Escaped => {
+                Some(c) if c.is_ascii_alphabetic() && kind == EscapeKind::Escaped => {
                     self.data.temp.drain(..);
 
                     self.sink.emit([Token::CharacterToken('<')]);
 
-                    self.reconsume(input, State::ScriptDataEscapeStart(EscapeKind::DoubleEscaped));
+                    self.reconsume(State::ScriptDataEscapeStart(EscapeKind::DoubleEscaped));
                 },
                 _ => {
                     if kind == EscapeKind::Escaped {
                         self.sink.emit([Token::CharacterToken('<')]);
                     }
 
-                    self.reconsume(input, State::ScriptDataEscaped(kind));
+                    self.reconsume(State::ScriptDataEscaped(kind));
                 },
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#script-data-escaped-end-tag-open-state
-            State::ScriptDataEscapedEndTagOpen => match input {
-                c if c.is_ascii_alphabetic() => {
+            State::ScriptDataEscapedEndTagOpen => match self.buffer.next() {
+                Some(c) if c.is_ascii_alphabetic() => {
                     self.data.tag = Rc::new(RefCell::new(Tag::new(TagKind::End)));
 
-                    self.reconsume(input, State::ScriptDataEscapedEndTagName);
+                    self.reconsume(State::ScriptDataEscapedEndTagName);
                 },
                 _ => {
                     self.sink.emit([Token::CharacterToken('<'), Token::CharacterToken('/')]);
 
-                    self.reconsume(input, State::ScriptDataEscaped(EscapeKind::Escaped));
+                    self.reconsume(State::ScriptDataEscaped(EscapeKind::Escaped));
                 },
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#script-data-escaped-end-tag-name-state
-            State::ScriptDataEscapedEndTagName => match input {
-                '\t' | '\n' | '\x0C' | ' ' if self.data.tag.borrow().has_appropriate_end_tag(self.data.last.clone()) => self.state = State::BeforeAttributeName,
-                '/' if self.data.tag.borrow().has_appropriate_end_tag(self.data.last.clone()) => self.state = State::SelfClosingStartTag,
-                '>' if self.data.tag.borrow().has_appropriate_end_tag(self.data.last.clone()) => {
+            State::ScriptDataEscapedEndTagName => match self.buffer.next() {
+                Some('\t' | '\n' | '\x0C' | ' ') if self.data.tag.borrow().has_appropriate_end_tag(self.data.last.clone()) => self.state = State::BeforeAttributeName,
+                Some('/') if self.data.tag.borrow().has_appropriate_end_tag(self.data.last.clone()) => self.state = State::SelfClosingStartTag,
+                Some('>') if self.data.tag.borrow().has_appropriate_end_tag(self.data.last.clone()) => {
                     self.state = State::Data;
 
                     self.emit_tag();
                 },
-                c if c.is_ascii_alphabetic() => {
+                Some(c) if c.is_ascii_alphabetic() => {
                     self.data.tag.borrow_mut().append_name(c.to_ascii_lowercase());
 
                     self.data.temp.push(c);
@@ -329,143 +389,311 @@ impl<Sink: TokenSink, Buf: BufRead> Tokenizer<Sink, Buf> {
 
                     self.sink.emit(self.data.temp.chars().map(|c| Token::CharacterToken(c)));
 
-                    self.reconsume(input, State::ScriptDataEscaped(EscapeKind::Escaped));
+                    self.reconsume(State::ScriptDataEscaped(EscapeKind::Escaped));
                 },
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#script-data-double-escape-end-state
-            State::ScriptDataDoubleEscapeEnd => match input {
-                '\t' | '\n' | '\x0C' | ' ' | '/' | '>' => if self.data.temp.as_str() == "script" {
-                    self.set_state_and_emit(State::ScriptDataEscaped(EscapeKind::Escaped), [Token::CharacterToken(input)]);
-                } else {
-                    self.set_state_and_emit(State::ScriptDataEscaped(EscapeKind::DoubleEscaped), [Token::CharacterToken(input)]);
+            State::ScriptDataDoubleEscapeEnd => match self.buffer.next() {
+                Some(c) if matches!(c, '\t' | '\n' | '\x0C' | ' ' | '/' | '>') && self.data.temp.as_str() == "script" => {
+                    self.set_state_and_emit(State::ScriptDataEscaped(EscapeKind::Escaped), [Token::CharacterToken(c)]);
                 },
-                c if c.is_ascii_alphabetic() => {
+                Some(c) if matches!(c, '\t' | '\n' | '\x0C' | ' ' | '/' | '>') && self.data.temp.as_str() != "script" => {
+                    self.set_state_and_emit(State::ScriptDataEscaped(EscapeKind::DoubleEscaped), [Token::CharacterToken(c)]);
+                },
+                Some(c) if c.is_ascii_alphabetic() => {
                     self.data.temp.push(c.to_ascii_lowercase());
 
                     self.sink.emit([Token::CharacterToken(c)]);
                 },
-                _ => self.reconsume(input, State::ScriptDataEscaped(EscapeKind::DoubleEscaped)),
+                _ => self.reconsume(State::ScriptDataEscaped(EscapeKind::DoubleEscaped)),
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#before-attribute-name-state
-            State::BeforeAttributeName => match input {
-                '\t' | '\n' | '\x0C' | ' ' => {},
-                '/' | '>' => self.reconsume(input, State::AfterAttributeName),
-                '=' => {
-                    self.data.tag.borrow_mut().create_attribute(input.to_string(), String::new());
+            State::BeforeAttributeName => match self.buffer.next() {
+                Some('\t' | '\n' | '\x0C' | ' ') => {},
+                Some('/' | '>') => self.reconsume(State::AfterAttributeName),
+                Some('=') => {
+                    self.data.tag.borrow_mut().create_attribute(String::from('='), String::new());
 
                     self.state = State::AttributeName;
                 },
-                _ => {
+                Some(_) => {
                     self.data.tag.borrow_mut().create_attribute(String::new(), String::new());
 
-                    self.reconsume(input, State::AttributeName);
-                }
+                    self.reconsume(State::AttributeName);
+                },
+                None => self.reconsume(State::AfterAttributeName),
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#attribute-name-state
-            State::AttributeName => match input {
-                '\t' | '\n' | '\x0C' | ' ' | '/' | '>' => self.reconsume(input, State::AfterAttributeName),
-                '=' => self.state = State::BeforeAttributeValue,
-                '\0' => self.data.tag.borrow_mut().update_attribute(|attribute| attribute.name.push('\u{fffd}')),
-                _ => {
-                    let name = input.is_ascii_uppercase()
-                        .then(|| input.to_ascii_lowercase())
-                        .unwrap_or(input);
+            State::AttributeName => match self.buffer.next() {
+                Some('\t' | '\n' | '\x0C' | ' ' | '/' | '>') => self.reconsume(State::AfterAttributeName),
+                Some('=') => self.state = State::BeforeAttributeValue,
+                Some('\0') => self.data.tag.borrow_mut().update_attribute(|attribute| attribute.name.push('\u{fffd}')),
+                Some(c) => {
+                    let name = c.is_ascii_uppercase()
+                        .then(|| c.to_ascii_lowercase())
+                        .unwrap_or(c);
 
                     self.data.tag.borrow_mut().update_attribute(|attribute| attribute.name.push(name));
                 },
+                None => self.reconsume(State::AfterAttributeName),
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#after-attribute-name-state
-            State::AfterAttributeName => match input {
-                '\t' | '\n' | '\x0C' | ' ' => {},
-                '/' => self.state = State::SelfClosingStartTag,
-                '=' => self.state = State::BeforeAttributeValue,
-                '>' => {
+            State::AfterAttributeName => match self.buffer.next() {
+                Some('\t' | '\n' | '\x0C' | ' ') => {},
+                Some('/') => self.state = State::SelfClosingStartTag,
+                Some('=') => self.state = State::BeforeAttributeValue,
+                Some('>') => {
                     self.state = State::Data;
 
                     self.emit_tag();
                 },
-                _ => {
+                Some(_) => {
                     self.data.tag.borrow_mut().create_attribute(String::new(), String::new());
 
-                    self.reconsume(input, State::AttributeName);
+                    self.reconsume(State::AttributeName);
                 },
+                None => self.sink.eof(),
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#before-attribute-value-state
-            State::BeforeAttributeValue => match input {
-                '\t' | '\n' | '\x0C' | ' ' => {},
-                '"' => self.state = State::AttributeValueDoubleQuoted,
-                '\'' => self.state = State::AttributeValueSingleQuoted,
-                '>' => {
+            State::BeforeAttributeValue => match self.buffer.next() {
+                Some('\t' | '\n' | '\x0C' | ' ') => {},
+                Some('"') => self.state = State::AttributeValueDoubleQuoted,
+                Some('\'') => self.state = State::AttributeValueSingleQuoted,
+                Some('>') => {
                     self.state = State::Data;
 
                     self.emit_tag();
                 },
-                _ => self.reconsume(input, State::AttributeValueUnquoted),
+                _ => self.reconsume(State::AttributeValueUnquoted),
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#attribute-value-(double-quoted)-state
-            State::AttributeValueDoubleQuoted | State::AttributeValueSingleQuoted => match input {
-                '"' if self.state == State::AttributeValueDoubleQuoted => self.state = State::AfterAttributeValueQuoted,
-                '\'' if self.state == State::AttributeValueSingleQuoted => self.state = State::AfterAttributeValueQuoted,
-                '&' => todo!(),
-                '\0' => self.data.tag.borrow_mut().update_attribute(|attribute| attribute.value.push('\u{fffd}')),
-                _ => self.data.tag.borrow_mut().update_attribute(|attribute| attribute.value.push(input)),
+            State::AttributeValueDoubleQuoted | State::AttributeValueSingleQuoted => match self.buffer.next() {
+                Some('"') if self.state == State::AttributeValueDoubleQuoted => self.state = State::AfterAttributeValueQuoted,
+                Some('\'') if self.state == State::AttributeValueSingleQuoted => self.state = State::AfterAttributeValueQuoted,
+                Some('&') => todo!(),
+                Some('\0') => self.data.tag.borrow_mut().update_attribute(|attribute| attribute.value.push('\u{fffd}')),
+                Some(c) => self.data.tag.borrow_mut().update_attribute(|attribute| attribute.value.push(c)),
+                None => self.sink.eof(),
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#attribute-value-(unquoted)-state
-            State::AttributeValueUnquoted => match input {
-                '\t' | '\n' | '\x0C' | ' ' => self.state = State::BeforeAttributeName,
-                '&' => todo!(),
-                '>' => {
+            State::AttributeValueUnquoted => match self.buffer.next() {
+                Some('\t' | '\n' | '\x0C' | ' ') => self.state = State::BeforeAttributeName,
+                Some('&') => todo!(),
+                Some('>') => {
                     self.state = State::Data;
 
                     self.emit_tag();
                 },
-                '\0' => self.data.tag.borrow_mut().update_attribute(|attribute| attribute.value.push('\u{fffd}')),
-                _ => self.data.tag.borrow_mut().update_attribute(|attribute| attribute.value.push(input)),
+                Some('\0') => self.data.tag.borrow_mut().update_attribute(|attribute| attribute.value.push('\u{fffd}')),
+                Some(c) => self.data.tag.borrow_mut().update_attribute(|attribute| attribute.value.push(c)),
+                None => self.sink.eof(),
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#after-attribute-value-(quoted)-state
-            State::AfterAttributeValueQuoted => match input {
-                '\t' | '\n' | '\x0C' | ' ' => self.state = State::BeforeAttributeName,
-                '/' => self.state = State::SelfClosingStartTag,
-                '>' => {
+            State::AfterAttributeValueQuoted => match self.buffer.next() {
+                Some('\t' | '\n' | '\x0C' | ' ') => self.state = State::BeforeAttributeName,
+                Some('/') => self.state = State::SelfClosingStartTag,
+                Some('>') => {
                     self.state = State::Data;
 
                     self.emit_tag();
                 },
-                _ => self.reconsume(input, State::BeforeAttributeName),
+                Some(_) => self.reconsume(State::BeforeAttributeName),
+                None => self.sink.eof(),
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#self-closing-start-tag-state
-            State::SelfClosingStartTag => match input {
-                '>' => {
+            State::SelfClosingStartTag => match self.buffer.next() {
+                Some('>') => {
                     self.data.tag.borrow_mut().self_closing = true;
 
                     self.state = State::Data;
 
                     self.emit_tag();
                 },
-                _ => self.reconsume(input, State::BeforeAttributeName),
+                Some(_) => self.reconsume(State::BeforeAttributeName),
+                None => self.sink.eof(),
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#bogus-comment-state
-            State::BogusComment => match input {
-                '>' => {
+            State::BogusComment => match self.buffer.next() {
+                Some('>') => {
                     self.state = State::Data;
 
                     self.sink.emit([Token::Comment(&self.data.comment)]);
                 },
-                '\0' => self.data.comment.push('\u{fffd}'),
-                _ => self.data.comment.push(input),
+                Some('\0') => self.data.comment.push('\u{fffd}'),
+                Some(c) => self.data.comment.push(c),
+                None => self.sink.eof(),
             },
 
-            State::MarkupDeclarationOpen => match input {
+            // https://html.spec.whatwg.org/multipage/parsing.html#markup-declaration-open-state
+            //
+            // NOTE: cloning the buffer is cheap as it only clones the iterator state and not the data itself.
+            State::MarkupDeclarationOpen => {
+                if self.buffer.peek_exact("--") {
+                    self.data.comment.drain(..);
+
+                    self.state = State::CommentStart;
+                } else if self.buffer.peek_exact("doctype") {
+                    self.state = State::Doctype;
+                } else if self.buffer.peek_exact("[cdata[") {
+                    // FIXME: we use peek_exact which is case insensitive, technically its
+                    // supposed to be case sensitive here.
+
+                    if self.sink.adjusted_node_namespace() {
+                        self.state = State::CDataSection;
+                    } else {
+                        self.data.comment = String::from("[CDATA[");
+
+                        self.state = State::BogusComment;
+                    }
+                } else {
+                    self.data.comment.drain(..);
+
+                    self.state = State::BogusComment;
+                }
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#comment-start-state
+            State::CommentStart => match self.buffer.next() {
+                Some('-') => self.state = State::CommentStartDash,
+                Some('>') => {
+                    self.sink.emit([Token::Comment(&self.data.comment)]);
+
+                    self.state = State::Data;
+                },
+                _ => self.reconsume(State::Comment),
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#comment-start-dash-state
+            State::CommentStartDash => match self.buffer.next() {
+                Some('-') => self.state = State::CommentEnd,
+                Some('>') => {
+                    self.sink.emit([Token::Comment(&self.data.comment)]);
+
+                    self.state = State::Data;
+                },
+                Some(_) => {
+                    self.data.comment.push('-');
+
+                    self.reconsume(State::Comment);
+                },
+                None => {
+                    self.sink.emit([Token::Comment(&self.data.comment)]);
+
+                    self.sink.eof();
+                },
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#comment-state
+            State::Comment => match self.buffer.next() {
+                Some('<') => {
+                    self.data.comment.push('<');
+
+                    self.state = State::CommentLessThenSign;
+                },
+                Some('-') => self.state = State::CommentEndDash,
+                Some('\0') => self.data.comment.push('\u{fffd}'),
+                Some(c) => self.data.comment.push(c),
+                None => {
+                    self.sink.emit([Token::Comment(&self.data.comment)]);
+
+                    self.sink.eof();
+                },
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#comment-less-than-sign-state
+            State::CommentLessThenSign => match self.buffer.next() {
+                Some('!') => {
+                    self.data.comment.push('!');
+
+                    self.state = State::CommentLessThenSignBang;
+                },
+                Some('<') => self.data.comment.push('<'),
+                _ => self.reconsume(State::Comment),
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#comment-less-than-sign-bang-state
+            State::CommentLessThenSignBang => match self.buffer.next() {
+                Some('-') => self.state = State::CommentLessThenSignBangDash,
+                _ => self.reconsume(State::Comment),
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#comment-less-than-sign-bang-dash-state
+            State::CommentLessThenSignBangDash => match self.buffer.next() {
+                Some('-') => self.state = State::CommentLessThenSignBangDashDash,
+                _ => self.reconsume(State::CommentEndDash),
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#comment-less-than-sign-bang-dash-dash-state
+            State::CommentLessThenSignBangDashDash => self.reconsume(State::CommentEnd),
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#comment-end-dash-state
+            State::CommentEndDash => match self.buffer.next() {
+                Some('-') => self.state = State::CommentEnd,
+                Some(_) => {
+                    self.data.comment.push('-');
+
+                    self.reconsume(State::Comment);
+                },
+                None => {
+                    self.sink.emit([Token::Comment(&self.data.comment)]);
+
+                    self.sink.eof();
+                },
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#comment-end-state
+            State::CommentEnd => match self.buffer.next() {
+                Some('>') => {
+                    self.sink.emit([Token::Comment(&self.data.comment)]);
+
+                    self.state = State::Data;
+                },
+                Some('!') => self.state = State::CommentEndBang,
+                Some('-') => self.data.comment.push('-'),
+                Some(_) => {
+                    self.data.comment.push_str("--");
+
+                    self.reconsume(State::Comment);
+                },
+                None => {
+                    self.sink.emit([Token::Comment(&self.data.comment)]);
+
+                    self.sink.eof();
+                },
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#comment-end-bang-state
+            State::CommentEndBang => match self.buffer.next() {
+                Some('-') => {
+                    self.data.comment.push_str("--!");
+
+                    self.state = State::CommentEndDash;
+                },
+                Some('>') => {
+                    self.sink.emit([Token::Comment(&self.data.comment)]);
+
+                    self.state = State::Data;
+                },
+                Some(_) => {
+                    self.data.comment.push_str("--!");
+
+                    self.reconsume(State::Comment);
+                },
+                None => {
+                    self.sink.emit([Token::Comment(&self.data.comment)]);
+
+                    self.sink.eof();
+                },
             },
             _ => unimplemented!(),
         }

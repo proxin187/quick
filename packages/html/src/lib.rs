@@ -1,5 +1,5 @@
 #![feature(unique_rc_arc)]
 
-mod tokenizer;
+pub mod tokenizer;
 
 
