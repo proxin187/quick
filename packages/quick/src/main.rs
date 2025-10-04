@@ -1,5 +1,4 @@
-use quick_html::tokenizer::Tokenizer;
-use quick_html::tokenizer::token::{TokenSink, Token};
+use quick_html::tokenizer::{Tokenizer, Token, TokenSink};
 
 struct Sink;
 

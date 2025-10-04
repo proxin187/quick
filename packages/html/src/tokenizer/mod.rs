@@ -1,8 +1,9 @@
 mod state;
 pub mod token;
 
-use state::{EscapeKind, RawKind, State};
-use token::{Tag, TagKind, Token, TokenSink};
+pub use token::{Doctype, Tag, TagKind, Token, TokenSink};
+
+use state::{DoctypeKind, EscapeKind, RawKind, State};
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -10,6 +11,7 @@ use std::str::Chars;
 use std::iter::Peekable;
 
 struct Data {
+    doctype: Doctype,
     tag: Rc<RefCell<Tag>>,
     last: Option<Rc<RefCell<Tag>>>,
     temp: String,
@@ -19,6 +21,7 @@ struct Data {
 impl Data {
     pub fn new() -> Data {
         Data {
+            doctype: Doctype::new(),
             tag: Rc::new(RefCell::new(Tag::new(TagKind::Start))),
             last: None,
             temp: String::new(),
@@ -116,6 +119,10 @@ impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
     // TODO: implement emit tag
     fn emit_tag(&mut self) {
         self.data.last.replace(Rc::clone(&self.data.tag));
+    }
+
+    // TODO: implement emit doctype
+    fn emit_doctype(&mut self) {
     }
 
     pub fn wait(&mut self) {
@@ -691,6 +698,162 @@ impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
                 },
                 None => {
                     self.sink.emit([Token::Comment(&self.data.comment)]);
+
+                    self.sink.eof();
+                },
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#doctype-state
+            State::Doctype => match self.buffer.next() {
+                Some('\t' | '\n' | '\x0C' | ' ') => self.state = State::BeforeDoctypeName,
+                Some(_) => self.reconsume(State::BeforeDoctypeName),
+                None => {
+                    self.data.doctype.reset();
+
+                    self.data.doctype.force_quirks = true;
+
+                    self.emit_doctype();
+
+                    self.sink.eof();
+                },
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#before-doctype-name-state
+            State::BeforeDoctypeName => match self.buffer.next() {
+                Some('\t' | '\n' | '\x0C' | ' ') => {},
+                Some('\0') => {
+                    self.data.doctype.reset();
+
+                    self.data.doctype.name.append('\u{fffd}');
+
+                    self.state = State::DoctypeName;
+                },
+                Some('>') => {
+                    self.data.doctype.reset();
+
+                    self.data.doctype.force_quirks = true;
+
+                    self.emit_doctype();
+
+                    self.state = State::Data;
+                },
+                Some(c) => {
+                    self.data.doctype.reset();
+
+                    self.data.doctype.name.append(c.to_ascii_lowercase());
+
+                    self.state = State::DoctypeName;
+                },
+                None => {
+                    self.data.doctype.reset();
+
+                    self.data.doctype.force_quirks = true;
+
+                    self.emit_doctype();
+
+                    self.sink.eof();
+                },
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#doctype-name-state
+            State::DoctypeName => match self.buffer.next() {
+                Some('\t' | '\n' | '\x0C' | ' ') => self.state = State::AfterDoctypeName,
+                Some('>') => {
+                    self.emit_doctype();
+
+                    self.state = State::Data;
+                },
+                Some('\0') => self.data.doctype.name.append('\u{fffd}'),
+                Some(c) => self.data.doctype.name.append(c.to_ascii_lowercase()),
+                None => {
+                    self.data.doctype.force_quirks = true;
+
+                    self.emit_doctype();
+
+                    self.sink.eof();
+                },
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#after-doctype-name-state
+            State::AfterDoctypeName => match self.buffer.next() {
+                Some('\t' | '\n' | '\x0C' | ' ') => {},
+                Some('>') => {
+                    self.emit_doctype();
+
+                    self.state = State::Data;
+                },
+                Some('p' | 'P') if self.buffer.peek_exact("ublic") => self.state = State::AfterDoctypeKeyword(DoctypeKind::Public),
+                Some('s' | 'S') if self.buffer.peek_exact("ystem") => self.state = State::AfterDoctypeKeyword(DoctypeKind::System),
+                Some(_) => {
+                    self.data.doctype.force_quirks = true;
+
+                    self.reconsume(State::BogusDoctype);
+                },
+                None => {
+                    self.data.doctype.force_quirks = true;
+
+                    self.emit_doctype();
+
+                    self.sink.eof();
+                },
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#after-doctype-public-keyword-state
+            State::AfterDoctypeKeyword(kind) => match self.buffer.next() {
+                Some('\t' | '\n' | '\x0C' | ' ') => self.state = State::BeforeDoctypeIdentifier(kind),
+                Some(c) if matches!(c, '"' | '\'') => {
+                    self.data.doctype.get_id(kind).drain();
+
+                    if c == '"' {
+                        self.state = State::DoctypeIdentifierDoubleQuoted(kind);
+                    } else {
+                        self.state = State::DoctypeIdentifierSingleQuoted(kind);
+                    }
+                },
+                Some('>') => {
+                    self.data.doctype.force_quirks = true;
+
+                    self.emit_doctype();
+
+                    self.state = State::Data;
+                },
+                Some(_) => {
+                    self.data.doctype.force_quirks = true;
+
+                    self.reconsume(State::BogusDoctype);
+                },
+                None => {
+                    self.data.doctype.force_quirks = true;
+
+                    self.emit_doctype();
+
+                    self.sink.eof();
+                },
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#before-doctype-public-identifier-state
+            State::BeforeDoctypeIdentifier(kind) => match self.buffer.next() {
+                Some('\t' | '\n' | '\x0C' | ' ') => {},
+                Some(c) if matches!(c, '"' | '\'') => {
+                    self.data.doctype.get_id(kind).drain();
+
+                    if c == '"' {
+                        self.state = State::DoctypeIdentifierDoubleQuoted(kind);
+                    } else {
+                        self.state = State::DoctypeIdentifierSingleQuoted(kind);
+                    }
+                },
+                Some('>') => {
+                    self.data.doctype.force_quirks = true;
+
+                    self.emit_doctype();
+
+                    self.state = State::Data;
+                },
+                None => {
+                    self.data.doctype.force_quirks = true;
+
+                    self.emit_doctype();
 
                     self.sink.eof();
                 },

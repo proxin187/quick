@@ -1,6 +1,65 @@
+use super::DoctypeKind;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
+
+#[derive(Debug)]
+pub struct DoctypeValue {
+    value: Option<String>,
+}
+
+impl DoctypeValue {
+    pub fn new() -> DoctypeValue {
+        DoctypeValue {
+            value: None,
+        }
+    }
+
+    pub(super) fn append(&mut self, character: char) {
+        if let Some(value) = &mut self.value {
+            value.push(character);
+        } else {
+            self.value.replace(character.to_string());
+        }
+    }
+
+    pub(super) fn drain(&mut self) {
+        if let Some(value) = &mut self.value {
+            value.drain(..);
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Doctype {
+    pub name: DoctypeValue,
+    pub public_id: DoctypeValue,
+    pub system_id: DoctypeValue,
+    pub force_quirks: bool,
+}
+
+impl Doctype {
+    pub fn new() -> Doctype {
+        Doctype {
+            name: DoctypeValue::new(),
+            public_id: DoctypeValue::new(),
+            system_id: DoctypeValue::new(),
+            force_quirks: false,
+        }
+    }
+
+    pub(super) fn get_id(&mut self, kind: DoctypeKind) -> &mut DoctypeValue {
+        match kind {
+            DoctypeKind::Public => &mut self.public_id,
+            DoctypeKind::System => &mut self.system_id,
+        }
+    }
+
+    pub(super) fn reset(&mut self) {
+        *self = Doctype::new();
+    }
+}
 
 #[derive(Debug)]
 pub enum TagKind {
@@ -55,6 +114,7 @@ impl Tag {
 #[derive(Debug)]
 pub enum Token<'a> {
     Tag(Tag),
+    Doctype(Doctype),
     CharacterToken(char),
     Comment(&'a str),
 }
