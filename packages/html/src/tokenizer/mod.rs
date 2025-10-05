@@ -850,6 +850,11 @@ impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
 
                     self.state = State::Data;
                 },
+                Some(_) => {
+                    self.data.doctype.force_quirks = true;
+
+                    self.reconsume(State::BogusDoctype)
+                },
                 None => {
                     self.data.doctype.force_quirks = true;
 
@@ -858,6 +863,29 @@ impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
                     self.sink.eof();
                 },
             },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#doctype-public-identifier-(double-quoted)-state
+            State::DoctypeIdentifierDoubleQuoted(kind) => match self.buffer.next() {
+                Some('"') => self.state = State::AfterDoctypeIdentifier(kind),
+                Some('\0') => self.data.doctype.get_id(kind).append('\u{fffd}'),
+                Some('>') => {
+                    self.data.doctype.force_quirks = true;
+
+                    self.emit_doctype();
+
+                    self.state = State::Data;
+                },
+                Some(c) => self.data.doctype.get_id(kind).append(c),
+                None => {
+                    self.data.doctype.force_quirks = true;
+
+                    self.emit_doctype();
+
+                    self.sink.eof();
+                },
+            },
+
+            // TODO: remove the repeating code.
             _ => unimplemented!(),
         }
     }
