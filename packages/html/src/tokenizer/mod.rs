@@ -3,7 +3,7 @@ pub mod token;
 
 pub use token::{Doctype, Tag, TagKind, Token, TokenSink};
 
-use state::{DoctypeKind, EscapeKind, RawKind, State};
+use state::{IdentifierKind, DoctypeKind, EscapeKind, RawKind, State};
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -804,11 +804,7 @@ impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
                 Some(c) if matches!(c, '"' | '\'') => {
                     self.data.doctype.get_id(kind).drain();
 
-                    if c == '"' {
-                        self.state = State::DoctypeIdentifierDoubleQuoted(kind);
-                    } else {
-                        self.state = State::DoctypeIdentifierSingleQuoted(kind);
-                    }
+                    self.state = State::DoctypeIdentifier((c == '"').then(|| IdentifierKind::DoubleQuoted).unwrap_or(IdentifierKind::SingleQuoted), kind);
                 },
                 Some('>') => {
                     self.data.doctype.force_quirks = true;
@@ -837,11 +833,7 @@ impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
                 Some(c) if matches!(c, '"' | '\'') => {
                     self.data.doctype.get_id(kind).drain();
 
-                    if c == '"' {
-                        self.state = State::DoctypeIdentifierDoubleQuoted(kind);
-                    } else {
-                        self.state = State::DoctypeIdentifierSingleQuoted(kind);
-                    }
+                    self.state = State::DoctypeIdentifier((c == '"').then(|| IdentifierKind::DoubleQuoted).unwrap_or(IdentifierKind::SingleQuoted), kind);
                 },
                 Some('>') => {
                     self.data.doctype.force_quirks = true;
@@ -865,8 +857,9 @@ impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#doctype-public-identifier-(double-quoted)-state
-            State::DoctypeIdentifierDoubleQuoted(kind) => match self.buffer.next() {
-                Some('"') => self.state = State::AfterDoctypeIdentifier(kind),
+            State::DoctypeIdentifier(identifier, kind) => match self.buffer.next() {
+                Some('"') if identifier == IdentifierKind::DoubleQuoted => self.state = State::AfterDoctypeIdentifier(kind),
+                Some('\'') if identifier == IdentifierKind::SingleQuoted => self.state = State::AfterDoctypeIdentifier(kind),
                 Some('\0') => self.data.doctype.get_id(kind).append('\u{fffd}'),
                 Some('>') => {
                     self.data.doctype.force_quirks = true;
@@ -885,7 +878,37 @@ impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
                 },
             },
 
-            // TODO: remove the repeating code.
+            State::AfterDoctypeIdentifier(kind) => match kind {
+                // https://html.spec.whatwg.org/multipage/parsing.html#after-doctype-public-identifier-state
+                DoctypeKind::Public => match self.buffer.next() {
+                    Some('\t' | '\n' | '\x0C' | ' ') => self.state = State::BetweenDoctypePublicAndSystemIdentifiers,
+                    Some('>') => {
+                        self.emit_doctype();
+
+                        self.state = State::Data;
+                    },
+                    Some(c) if matches!(c, '"' | '\'') => {
+                        self.data.doctype.system_id.drain();
+
+                        self.state = State::DoctypeIdentifier((c == '"').then(|| IdentifierKind::DoubleQuoted).unwrap_or(IdentifierKind::SingleQuoted), DoctypeKind::System);
+                    },
+                    Some(_) => {
+                        self.data.doctype.force_quirks = true;
+
+                        self.reconsume(State::BogusDoctype);
+                    },
+                    None => {
+                        self.data.doctype.force_quirks = true;
+
+                        self.emit_doctype();
+
+                        self.sink.eof();
+                    },
+                },
+
+                DoctypeKind::System => {
+                },
+            },
             _ => unimplemented!(),
         }
     }

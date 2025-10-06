@@ -7,6 +7,12 @@ pub enum DoctypeKind {
 }
 
 #[derive(PartialEq, Clone, Copy)]
+pub enum IdentifierKind {
+    DoubleQuoted,
+    SingleQuoted,
+}
+
+#[derive(PartialEq, Clone, Copy)]
 pub enum EscapeKind {
     Escaped,
     DoubleEscaped,
@@ -66,8 +72,7 @@ pub enum State {
     AfterDoctypeName,
     AfterDoctypeKeyword(DoctypeKind),
     BeforeDoctypeIdentifier(DoctypeKind),
-    DoctypeIdentifierDoubleQuoted(DoctypeKind),
-    DoctypeIdentifierSingleQuoted(DoctypeKind),
+    DoctypeIdentifier(IdentifierKind, DoctypeKind),
     AfterDoctypeIdentifier(DoctypeKind),
     BetweenDoctypePublicAndSystemIdentifiers,
     BogusDoctype,
