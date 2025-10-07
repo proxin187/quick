@@ -799,6 +799,7 @@ impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#after-doctype-public-keyword-state
+            // https://html.spec.whatwg.org/multipage/parsing.html#after-doctype-system-keyword-state
             State::AfterDoctypeKeyword(kind) => match self.buffer.next() {
                 Some('\t' | '\n' | '\x0C' | ' ') => self.state = State::BeforeDoctypeIdentifier(kind),
                 Some(c) if matches!(c, '"' | '\'') => {
@@ -828,6 +829,7 @@ impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#before-doctype-public-identifier-state
+            // https://html.spec.whatwg.org/multipage/parsing.html#before-doctype-system-identifier-state
             State::BeforeDoctypeIdentifier(kind) => match self.buffer.next() {
                 Some('\t' | '\n' | '\x0C' | ' ') => {},
                 Some(c) if matches!(c, '"' | '\'') => {
@@ -857,6 +859,7 @@ impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
             },
 
             // https://html.spec.whatwg.org/multipage/parsing.html#doctype-public-identifier-(double-quoted)-state
+            // https://html.spec.whatwg.org/multipage/parsing.html#doctype-system-identifier-(double-quoted)-state
             State::DoctypeIdentifier(identifier, kind) => match self.buffer.next() {
                 Some('"') if identifier == IdentifierKind::DoubleQuoted => self.state = State::AfterDoctypeIdentifier(kind),
                 Some('\'') if identifier == IdentifierKind::SingleQuoted => self.state = State::AfterDoctypeIdentifier(kind),
@@ -878,36 +881,74 @@ impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
                 },
             },
 
-            State::AfterDoctypeIdentifier(kind) => match kind {
-                // https://html.spec.whatwg.org/multipage/parsing.html#after-doctype-public-identifier-state
-                DoctypeKind::Public => match self.buffer.next() {
-                    Some('\t' | '\n' | '\x0C' | ' ') => self.state = State::BetweenDoctypePublicAndSystemIdentifiers,
-                    Some('>') => {
-                        self.emit_doctype();
+            // https://html.spec.whatwg.org/multipage/parsing.html#after-doctype-system-identifier-state
+            State::AfterDoctypeIdentifier(DoctypeKind::System) => match self.buffer.next() {
+                Some('\t' | '\n' | '\x0C' | ' ') => {},
+                Some('>') => {
+                    self.emit_doctype();
 
-                        self.state = State::Data;
-                    },
-                    Some(c) if matches!(c, '"' | '\'') => {
-                        self.data.doctype.system_id.drain();
-
-                        self.state = State::DoctypeIdentifier((c == '"').then(|| IdentifierKind::DoubleQuoted).unwrap_or(IdentifierKind::SingleQuoted), DoctypeKind::System);
-                    },
-                    Some(_) => {
-                        self.data.doctype.force_quirks = true;
-
-                        self.reconsume(State::BogusDoctype);
-                    },
-                    None => {
-                        self.data.doctype.force_quirks = true;
-
-                        self.emit_doctype();
-
-                        self.sink.eof();
-                    },
+                    self.state = State::Data;
                 },
+                Some(_) => self.reconsume(State::BogusDoctype),
+                None => {
+                    self.data.doctype.force_quirks = true;
 
-                DoctypeKind::System => {
+                    self.emit_doctype();
+
+                    self.sink.eof();
                 },
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#after-doctype-public-identifier-state
+            // https://html.spec.whatwg.org/multipage/parsing.html#between-doctype-public-and-system-identifiers-state
+            State::BetweenDoctypePublicAndSystemIdentifiers | State::AfterDoctypeIdentifier(DoctypeKind::Public) => match self.buffer.next() {
+                Some('\t' | '\n' | '\x0C' | ' ')
+                    if matches!(self.state, State::AfterDoctypeIdentifier(DoctypeKind::Public)) => self.state = State::BetweenDoctypePublicAndSystemIdentifiers,
+                Some('\t' | '\n' | '\x0C' | ' ') if matches!(self.state, State::BetweenDoctypePublicAndSystemIdentifiers) => {},
+                Some('>') => {
+                    self.emit_doctype();
+
+                    self.state = State::Data;
+                },
+                Some(c) if matches!(c, '"' | '\'') => {
+                    self.data.doctype.system_id.drain();
+
+                    self.state = State::DoctypeIdentifier((c == '"').then(|| IdentifierKind::DoubleQuoted).unwrap_or(IdentifierKind::SingleQuoted), DoctypeKind::System);
+                },
+                Some(_) => {
+                    self.data.doctype.force_quirks = true;
+
+                    self.reconsume(State::BogusDoctype);
+                },
+                None => {
+                    self.data.doctype.force_quirks = true;
+
+                    self.emit_doctype();
+
+                    self.sink.eof();
+                },
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#bogus-doctype-state
+            State::BogusDoctype => match self.buffer.next() {
+                Some('>') => {
+                    self.emit_doctype();
+
+                    self.state = State::Data;
+                },
+                Some(_) => {},
+                None => {
+                    self.emit_doctype();
+
+                    self.sink.eof();
+                },
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#cdata-section-state
+            State::CDataSection => match self.buffer.next() {
+                Some(']') => self.state = State::CDataSectionBracket,
+                Some(c) => self.sink.emit([Token::CharacterToken(c)]),
+                None => self.sink.eof(),
             },
             _ => unimplemented!(),
         }
