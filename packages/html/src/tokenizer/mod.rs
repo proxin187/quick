@@ -950,7 +950,27 @@ impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
                 Some(c) => self.sink.emit([Token::CharacterToken(c)]),
                 None => self.sink.eof(),
             },
-            _ => unimplemented!(),
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#cdata-section-bracket-state
+            State::CDataSectionBracket => match self.buffer.next() {
+                Some(']') => self.state = State::CDataSectionEnd,
+                _ => {
+                    self.sink.emit([Token::CharacterToken(']')]);
+
+                    self.reconsume(State::CDataSection);
+                },
+            },
+
+            // https://html.spec.whatwg.org/multipage/parsing.html#cdata-section-end-state
+            State::CDataSectionEnd => match self.buffer.next() {
+                Some(']') => self.sink.emit([Token::CharacterToken(']')]),
+                Some('>') => self.state = State::Data,
+                _ => {
+                    self.sink.emit([Token::CharacterToken(']')]);
+
+                    self.reconsume(State::CDataSection);
+                },
+            },
         }
     }
 }
