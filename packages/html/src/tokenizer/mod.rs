@@ -125,13 +125,7 @@ impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
     fn emit_doctype(&mut self) {
     }
 
-    pub fn wait(&mut self) {
-        while !self.buffer.is_empty() {
-            self.step();
-        }
-    }
-
-    pub fn step(&mut self) {
+    pub fn step(&mut self) -> bool {
         match self.state {
             // https://html.spec.whatwg.org/multipage/parsing.html#data-state
             State::Data => match self.buffer.next() {
@@ -972,6 +966,8 @@ impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
                 },
             },
         }
+
+        self.buffer.is_empty()
     }
 }
 
