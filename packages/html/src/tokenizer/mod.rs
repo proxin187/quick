@@ -1,7 +1,10 @@
+#[cfg(test)]
+mod tests;
+
 mod state;
 pub mod token;
 
-pub use token::{Doctype, Tag, TagKind, Token, TokenSink};
+pub use token::{Doctype, Tag, TagKind, Token, TokenSink, Attribute};
 
 use state::{IdentifierKind, DoctypeKind, EscapeKind, RawKind, State};
 
@@ -116,13 +119,14 @@ impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
         self.sink.emit(tokens);
     }
 
-    // TODO: implement emit tag
     fn emit_tag(&mut self) {
         self.data.last.replace(Rc::clone(&self.data.tag));
+
+        self.sink.emit([Token::Tag(&*self.data.tag.borrow())]);
     }
 
-    // TODO: implement emit doctype
     fn emit_doctype(&mut self) {
+        self.sink.emit([Token::Doctype(&self.data.doctype)]);
     }
 
     pub fn step(&mut self) -> bool {

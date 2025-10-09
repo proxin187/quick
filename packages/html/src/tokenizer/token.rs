@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct DoctypeValue {
     value: Option<String>,
 }
@@ -31,7 +31,7 @@ impl DoctypeValue {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Doctype {
     pub name: DoctypeValue,
     pub public_id: DoctypeValue,
@@ -61,19 +61,19 @@ impl Doctype {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum TagKind {
     Start,
     End,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Attribute {
     pub name: String,
     pub value: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Tag {
     pub kind: TagKind,
     pub name: String,
@@ -111,10 +111,10 @@ impl Tag {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Token<'a> {
-    Tag(Tag),
-    Doctype(Doctype),
+    Tag(&'a Tag),
+    Doctype(&'a Doctype),
     CharacterToken(char),
     Comment(&'a str),
 }
