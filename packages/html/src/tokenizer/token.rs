@@ -82,12 +82,12 @@ pub struct Tag {
 }
 
 impl Tag {
-    pub fn new(kind: TagKind) -> Tag {
+    pub fn new(kind: TagKind, name: String, self_closing: bool, attributes: Vec<Attribute>) -> Tag {
         Tag {
             kind,
-            name: String::new(),
-            self_closing: false,
-            attributes: Vec::new(),
+            name,
+            self_closing,
+            attributes,
         }
     }
 
@@ -112,17 +112,19 @@ impl Tag {
 }
 
 #[derive(Debug, PartialEq)]
+/// Represents a Token.
 pub enum Token<'a> {
     Tag(&'a Tag),
     Doctype(&'a Doctype),
-    CharacterToken(char),
+    Character(char),
     Comment(&'a str),
 }
 
+/// Recieve tokens from the tokenizer in the TokenSink.
 pub trait TokenSink {
     fn process(&mut self, token: Token);
 
-    fn eof(&self);
+    fn eof(&mut self);
 
     fn emit<'a, T: IntoIterator<Item = Token<'a>>>(&mut self, tokens: T) {
         for token in tokens {
