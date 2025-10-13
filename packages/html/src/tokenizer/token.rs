@@ -120,6 +120,15 @@ pub enum Token<'a> {
     Comment(&'a str),
 }
 
+impl<'a> Token<'a> {
+    pub fn is_start_tag(&self, name: &str) -> bool {
+        match self {
+            Token::Tag(tag) =>  tag.name.as_str() == name,
+            _ => false,
+        }
+    }
+}
+
 /// Recieve tokens from the tokenizer in the TokenSink.
 pub trait TokenSink {
     fn process(&mut self, token: Token);
