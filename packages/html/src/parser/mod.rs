@@ -41,11 +41,31 @@ impl<Handle, Sink: TreeSink<Handle>> TreeBuilder<Handle, Sink> {
             || (element_name.is_mathml_annotation_xml() && token.is_start_tag("svg"))
             || (element_name.is_html_integration_point() && matches!(token, Token::Tag(Tag { kind: TagKind::Start, .. }) | Token::Character(_)))
     }
+
+    fn step(&mut self, token: Token) {
+        let document = self.sink.document();
+
+        match self.insertion_mode {
+            InsertionMode::Initial => match token {
+                Token::Character('\u{0009}' | '\u{000a}' | '\u{000c}' | '\u{000d}' | ' ') => {},
+                Token::Comment(content) => {
+                    let comment = self.sink.create_comment(content);
+
+                    self.sink.append(&document, &comment);
+                },
+                Token::Doctype(doctype) => {
+                    // TODO: do the doctype
+                },
+            },
+            _ => todo!(),
+        }
+    }
 }
 
 impl<Handle, Sink: TreeSink<Handle>> TokenSink for TreeBuilder<Handle, Sink> {
     fn process(&mut self, token: Token) {
         if self.not_foreign(&token) {
+            self.step(token);
         } else {
         }
     }

@@ -1,3 +1,4 @@
+use crate::tokenizer::Attribute;
 
 
 /// The local name of an element and its namespace.
@@ -14,7 +15,7 @@ impl ElementName {
             .unwrap_or_default()
     }
 
-    /// Checks if the element is a mathml text integration point.
+    /// Check if the element is a mathml text integration point.
     pub fn is_mathml_text_integration_point(&self) -> bool {
         self.is_namespace("http://www.w3.org/1998/Math/MathML")
             && ["mi", "mo", "mn", "ms", "mtext"].contains(&self.local_name.as_str())
@@ -26,15 +27,23 @@ impl ElementName {
             && self.local_name.as_str() == "annotation-xml"
     }
 
-    // TODO: implement html integration point
+    // TODO: implement html integration point, im not sure if we really need this
     pub fn is_html_integration_point(&self) -> bool {
-        todo!()
+        self.is_mathml_annotation_xml()
     }
 }
 
 /// Recieves updates on the tree.
 pub trait TreeSink<Handle> {
+    fn document(&self) -> Handle;
+
+    fn create_element(&self, name: ElementName, attributes: Vec<Attribute>) -> Handle;
+
+    fn create_comment(&self, content: &str) -> Handle;
+
     fn element_name(&self, handle: &Handle) -> ElementName;
+
+    fn append(&self, parent: &Handle, child: &Handle);
 }
 
 
