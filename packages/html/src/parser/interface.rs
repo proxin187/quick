@@ -1,4 +1,6 @@
-use crate::tokenizer::Attribute;
+use crate::tokenizer::{Attribute, Doctype};
+
+use super::quirks::QuirksMode;
 
 
 /// The local name of an element and its namespace.
@@ -37,13 +39,17 @@ impl ElementName {
 pub trait TreeSink<Handle> {
     fn document(&self) -> Handle;
 
-    fn create_element(&self, name: ElementName, attributes: Vec<Attribute>) -> Handle;
-
-    fn create_comment(&self, content: &str) -> Handle;
-
     fn element_name(&self, handle: &Handle) -> ElementName;
 
-    fn append(&self, parent: &Handle, child: &Handle);
+    fn create_element(&mut self, name: ElementName, attributes: Vec<Attribute>) -> Handle;
+
+    fn create_comment(&mut self, content: &str) -> Handle;
+
+    fn append(&mut self, parent: &Handle, child: &Handle);
+
+    fn append_doctype(&mut self, doctype: &Doctype);
+
+    fn set_quirks_mode(&mut self, mode: QuirksMode);
 }
 
 

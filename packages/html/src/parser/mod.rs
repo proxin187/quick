@@ -1,15 +1,17 @@
 pub mod interface;
+pub mod quirks;
 mod state;
 
 use crate::tokenizer::{TokenSink, Token, Tag, TagKind};
 
 use state::InsertionMode;
 use interface::TreeSink;
+use quirks::QuirksMode;
 
 
 pub struct TreeBuilder<Handle, Sink: TreeSink<Handle>> {
     sink: Sink,
-    insertion_mode: InsertionMode,
+    mode: InsertionMode,
     open_elements: Vec<Handle>,
 }
 
@@ -17,7 +19,7 @@ impl<Handle, Sink: TreeSink<Handle>> TreeBuilder<Handle, Sink> {
     pub fn new(sink: Sink) -> TreeBuilder<Handle, Sink> {
         TreeBuilder {
             sink,
-            insertion_mode: InsertionMode::Initial,
+            mode: InsertionMode::Initial,
             open_elements: Vec::new(),
         }
     }
@@ -45,7 +47,7 @@ impl<Handle, Sink: TreeSink<Handle>> TreeBuilder<Handle, Sink> {
     fn step(&mut self, token: Token) {
         let document = self.sink.document();
 
-        match self.insertion_mode {
+        match self.mode {
             InsertionMode::Initial => match token {
                 Token::Character('\u{0009}' | '\u{000a}' | '\u{000c}' | '\u{000d}' | ' ') => {},
                 Token::Comment(content) => {
@@ -54,7 +56,18 @@ impl<Handle, Sink: TreeSink<Handle>> TreeBuilder<Handle, Sink> {
                     self.sink.append(&document, &comment);
                 },
                 Token::Doctype(doctype) => {
-                    // TODO: do the doctype
+                    self.sink.append_doctype(doctype);
+
+                    self.sink.set_quirks_mode(QuirksMode::from(doctype));
+
+                    self.mode = InsertionMode::BeforeHtml;
+                },
+                _ => {
+                    self.sink.set_quirks_mode(QuirksMode::Quirks);
+
+                    self.mode = InsertionMode::BeforeHtml;
+
+                    self.step(token);
                 },
             },
             _ => todo!(),

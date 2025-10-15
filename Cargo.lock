@@ -15,6 +15,9 @@ dependencies = [
 [[package]]
 name = "quick_html"
 version = "0.1.0"
+dependencies = [
+ "unicase",
+]
 
 [[package]]
 name = "quick_layout"
@@ -27,3 +30,9 @@ version = "0.1.0"
 [[package]]
 name = "quick_style"
 version = "0.1.0"
+
+[[package]]
+name = "unicase"
+version = "2.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75b844d17643ee918803943289730bec8aac480150456169e647ed0b576ba539"

@@ -10,8 +10,68 @@ use std::rc::Rc;
 use std::str::Chars;
 use std::iter::Peekable;
 
+use unicase::UniCase;
+
+
+#[derive(Debug, PartialEq)]
+struct DoctypeBuilder {
+    name: DoctypeValueBuilder,
+    public_id: DoctypeValueBuilder,
+    system_id: DoctypeValueBuilder,
+    force_quirks: bool,
+}
+
+impl DoctypeBuilder {
+    pub fn new() -> DoctypeBuilder {
+        DoctypeBuilder {
+            name: DoctypeValueBuilder::new(),
+            public_id: DoctypeValueBuilder::new(),
+            system_id: DoctypeValueBuilder::new(),
+            force_quirks: false,
+        }
+    }
+
+    pub(super) fn get_id(&mut self, kind: DoctypeKind) -> &mut DoctypeValueBuilder {
+        match kind {
+            DoctypeKind::Public => &mut self.public_id,
+            DoctypeKind::System => &mut self.system_id,
+        }
+    }
+
+    pub(super) fn reset(&mut self) {
+        *self = DoctypeBuilder::new();
+    }
+}
+
+#[derive(Debug, PartialEq)]
+struct DoctypeValueBuilder {
+    value: Option<String>,
+}
+
+impl DoctypeValueBuilder {
+    pub fn new() -> DoctypeValueBuilder {
+        DoctypeValueBuilder {
+            value: None,
+        }
+    }
+
+    fn append(&mut self, character: char) {
+        if let Some(value) = &mut self.value {
+            value.push(character);
+        } else {
+            self.value.replace(character.to_string());
+        }
+    }
+
+    fn drain(&mut self) {
+        if let Some(value) = &mut self.value {
+            value.drain(..);
+        }
+    }
+}
+
 struct Data {
-    doctype: Doctype,
+    doctype: DoctypeBuilder,
     tag: Rc<RefCell<Tag>>,
     last: Option<Rc<RefCell<Tag>>>,
     temp: String,
@@ -21,7 +81,7 @@ struct Data {
 impl Data {
     pub fn new() -> Data {
         Data {
-            doctype: Doctype::new(),
+            doctype: DoctypeBuilder::new(),
             tag: Rc::new(RefCell::new(Tag::new(TagKind::Start, String::new(), false, Vec::new()))),
             last: None,
             temp: String::new(),
@@ -125,7 +185,15 @@ impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
     }
 
     fn emit_doctype(&mut self) {
-        self.sink.emit([Token::Doctype(&self.data.doctype)]);
+        let doctype = &self.data.doctype;
+
+        // TODO: fix this
+        self.sink.emit([Token::Doctype(Doctype {
+            name: doctype.name.value.map(|name| UniCase::new(name.as_str())),
+            public_id: doctype.public_id.value.map(|public_id| UniCase::new(public_id.as_str())),
+            system_id: doctype.system_id.value.map(|system_id| UniCase::new(system_id.as_str())),
+            force_quirks: doctype.force_quirks,
+        })]);
     }
 
     pub fn step(&mut self) -> bool {
