@@ -12,6 +12,15 @@ pub struct Doctype<'a> {
     pub force_quirks: bool,
 }
 
+impl<'a> Doctype<'a> {
+    #[inline]
+    pub fn is_parse_error(&self) -> bool {
+        self.name != Some(UniCase::new("html"))
+            || self.public_id.is_some()
+            || (self.system_id.is_some() && self.system_id != Some(UniCase::new("about:legacy-compat")))
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum TagKind {
     Start,

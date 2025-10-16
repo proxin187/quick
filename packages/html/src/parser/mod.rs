@@ -8,6 +8,8 @@ use state::InsertionMode;
 use interface::TreeSink;
 use quirks::QuirksMode;
 
+use unicase::UniCase;
+
 
 pub struct TreeBuilder<Handle, Sink: TreeSink<Handle>> {
     sink: Sink,
@@ -44,6 +46,7 @@ impl<Handle, Sink: TreeSink<Handle>> TreeBuilder<Handle, Sink> {
             || (element_name.is_html_integration_point() && matches!(token, Token::Tag(Tag { kind: TagKind::Start, .. }) | Token::Character(_)))
     }
 
+    // TODO: we should maybe have a custom error type for parse_error
     fn step(&mut self, token: Token) {
         let document = self.sink.document();
 
@@ -56,13 +59,19 @@ impl<Handle, Sink: TreeSink<Handle>> TreeBuilder<Handle, Sink> {
                     self.sink.append(&document, &comment);
                 },
                 Token::Doctype(doctype) => {
-                    self.sink.append_doctype(doctype);
+                    if doctype.is_parse_error() {
+                        self.sink.parse_error("bad doctype");
+                    }
+
+                    self.sink.append_doctype(&doctype);
 
                     self.sink.set_quirks_mode(QuirksMode::from(doctype));
 
                     self.mode = InsertionMode::BeforeHtml;
                 },
                 _ => {
+                    self.sink.parse_error("not an iframe srcdoc");
+
                     self.sink.set_quirks_mode(QuirksMode::Quirks);
 
                     self.mode = InsertionMode::BeforeHtml;

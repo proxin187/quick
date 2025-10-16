@@ -1,5 +1,7 @@
 use crate::tokenizer::Doctype;
 
+use unicase::UniCase;
+
 
 const PUBLIC_ID_PREFIX: &[&str] = &[
     "+//silmaril//dtd html pro v0r11 19970101//",
@@ -65,12 +67,12 @@ const PUBLIC_ID_MATCH: &[&str] = &[
     "html",
 ];
 
-const SYSTEM_ID_MATCH: &str = "http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd";
-
-const OTHER_PUBLIC_ID_PREFIX: &[&str] = &[
+const PUBLIC_ID_OTHER: &[&str] = &[
     "-//w3c//dtd html 4.01 frameset//",
     "-//w3c//dtd html 4.01 transitional//",
 ];
+
+const SYSTEM_ID_MATCH: &str = "http://www.ibm.com/data/dtd/v11/ibmxhtml1-transitional.dtd";
 
 pub enum QuirksMode {
     NoQuirks,
@@ -78,11 +80,20 @@ pub enum QuirksMode {
     LimitedQuirks,
 }
 
-impl From<Doctype> for QuirksMode {
-    fn from(doctype: Doctype) -> QuirksMode {
+// TODO: implement tests for quirks
+impl<'a> From<Doctype<'a>> for QuirksMode {
+    fn from(doctype: Doctype<'a>) -> QuirksMode {
         match doctype {
-            Doctype { name, .. } if name.value.map(|string| string.to_ascii_lowercase().as_str()) != Some("html") => QuirksMode::Quirks,
-            Doctype { public_id, .. } if public_id.value.map(|string| PUBLIC_ID_MATCH.contains(&string.to_ascii_lowercase().as_str())).unwrap_or_default() => QuirksMode::Quirks,
+            Doctype { name, .. } if name != Some(UniCase::new("html")) => QuirksMode::Quirks,
+            Doctype { public_id, .. } if public_id.map(|string| PUBLIC_ID_MATCH.contains(&string)).unwrap_or_default() => QuirksMode::Quirks,
+            Doctype { system_id, .. } if system_id == Some(UniCase::new(SYSTEM_ID_MATCH)) => QuirksMode::Quirks,
+            Doctype { public_id, .. } if public_id.map(|string| PUBLIC_ID_PREFIX.iter().any(|prefix| string.starts_with(prefix))).unwrap_or_default() => QuirksMode::Quirks,
+            Doctype { system_id, public_id, .. } if public_id.map(|string| PUBLIC_ID_OTHER.iter().any(|prefix| string.starts_with(prefix))).unwrap_or_default() => {
+                system_id.is_none()
+                    .then(|| QuirksMode::Quirks)
+                    .unwrap_or(QuirksMode::LimitedQuirks)
+            },
+            _ => QuirksMode::NoQuirks,
         }
     }
 }

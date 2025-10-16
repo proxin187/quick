@@ -187,11 +187,10 @@ impl<'a, Sink: TokenSink> Tokenizer<'a, Sink> {
     fn emit_doctype(&mut self) {
         let doctype = &self.data.doctype;
 
-        // TODO: fix this
         self.sink.emit([Token::Doctype(Doctype {
-            name: doctype.name.value.map(|name| UniCase::new(name.as_str())),
-            public_id: doctype.public_id.value.map(|public_id| UniCase::new(public_id.as_str())),
-            system_id: doctype.system_id.value.map(|system_id| UniCase::new(system_id.as_str())),
+            name: doctype.name.value.as_ref().map(|name| UniCase::new(name.as_str())),
+            public_id: doctype.public_id.value.as_ref().map(|public_id| UniCase::new(public_id.as_str())),
+            system_id: doctype.system_id.value.as_ref().map(|system_id| UniCase::new(system_id.as_str())),
             force_quirks: doctype.force_quirks,
         })]);
     }

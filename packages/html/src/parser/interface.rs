@@ -41,6 +41,8 @@ pub trait TreeSink<Handle> {
 
     fn element_name(&self, handle: &Handle) -> ElementName;
 
+    fn parse_error(&mut self, message: &str);
+
     fn create_element(&mut self, name: ElementName, attributes: Vec<Attribute>) -> Handle;
 
     fn create_comment(&mut self, content: &str) -> Handle;
