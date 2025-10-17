@@ -5,10 +5,8 @@ mod state;
 use crate::tokenizer::{TokenSink, Token, Tag, TagKind};
 
 use state::InsertionMode;
-use interface::TreeSink;
+use interface::{TreeSink, ElementName};
 use quirks::QuirksMode;
-
-use unicase::UniCase;
 
 
 pub struct TreeBuilder<Handle, Sink: TreeSink<Handle>> {
@@ -46,7 +44,6 @@ impl<Handle, Sink: TreeSink<Handle>> TreeBuilder<Handle, Sink> {
             || (element_name.is_html_integration_point() && matches!(token, Token::Tag(Tag { kind: TagKind::Start, .. }) | Token::Character(_)))
     }
 
-    // TODO: we should maybe have a custom error type for parse_error
     fn step(&mut self, token: Token) {
         let document = self.sink.document();
 
@@ -77,6 +74,31 @@ impl<Handle, Sink: TreeSink<Handle>> TreeBuilder<Handle, Sink> {
                     self.mode = InsertionMode::BeforeHtml;
 
                     self.step(token);
+                },
+            },
+            InsertionMode::BeforeHtml => match token {
+                Token::Character('\u{0009}' | '\u{000a}' | '\u{000c}' | '\u{000d}' | ' ') => {},
+                Token::Doctype(doctype) => self.sink.parse_error(format!("unexpected: {:?}", doctype)),
+                Token::Comment(content) => {
+                    let comment = self.sink.create_comment(content);
+
+                    self.sink.append(&document, &comment);
+                },
+                Token::Tag(tag) if tag.kind == TagKind::Start && tag.name.as_str() == "html" => {
+                    let name = ElementName::new(Some("http://www.w3.org/1999/xhtml"), None, tag.name.as_str());
+
+                    let element = self.sink.create_element(name, &tag.attributes);
+                    let document = self.sink.document();
+
+                    self.sink.append(&document, &element);
+
+                    self.open_elements.push(element);
+                },
+                Token::Tag(tag) if tag.kind == TagKind::End && !["head", "body", "html", "br"].contains(&tag.name.as_str()) => {
+                    self.sink.parse_error(format!("unexpected: {:?}", tag));
+                },
+                _ => {
+                    // TODO: anything else field
                 },
             },
             _ => todo!(),
