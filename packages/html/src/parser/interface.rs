@@ -11,10 +11,11 @@ pub struct ElementName<'a> {
 }
 
 impl<'a> ElementName<'a> {
-    pub fn new(namespace: Option<&'a str>, namespace_prefix: Option<&'a str>, local_name: &'a str) -> ElementName<'a> {
+    /// Create a new element name with a local_name and namespace.
+    pub fn new_with_ns(local_name: &'a str, namespace: &'a str) -> ElementName<'a> {
         ElementName {
-            namespace,
-            namespace_prefix,
+            namespace: Some(namespace),
+            namespace_prefix: None,
             local_name,
         }
     }
@@ -45,20 +46,34 @@ impl<'a> ElementName<'a> {
 
 /// Recieves updates on the tree.
 pub trait TreeSink<Handle> {
+    /// Returns the root document handle.
     fn document(&self) -> Handle;
 
-    fn element_name(&self, handle: &Handle) -> ElementName;
+    /// Given a node, return the associated node document handle.
+    fn node_document(&self, handle: &Handle) -> &Handle;
 
+    /// Given a element node, return the element name.
+    fn element_name<'a>(&self, handle: &Handle) -> ElementName<'a>;
+
+    /// Given a handle to a node, return the parent of said node if it exists.
+    fn parent_of(&self, handle: &Handle) -> Option<&Handle>;
+
+    /// Called when a parse error is encountered.
     fn parse_error<Message: AsRef<str>>(&mut self, message: Message);
 
+    /// Given a name and attributes, create an element.
     fn create_element(&mut self, name: ElementName, attributes: &[Attribute]) -> Handle;
 
+    /// Given some content, create a comment.
     fn create_comment(&mut self, content: &str) -> Handle;
 
+    /// Given a parent and child node, append said child node into the dom as the last child of said parent node.
     fn append(&mut self, parent: &Handle, child: &Handle);
 
+    /// Append a doctype to the document.
     fn append_doctype(&mut self, doctype: &Doctype);
 
+    /// Set the quirks mode.
     fn set_quirks_mode(&mut self, mode: QuirksMode);
 }
 
