@@ -5,7 +5,7 @@ mod state;
 use crate::tokenizer::{TokenSink, Token, Tag, TagKind};
 
 use state::InsertionMode;
-use interface::{TreeSink, ElementName};
+use interface::{TreeSink, Node, ElementName};
 use quirks::QuirksMode;
 
 
@@ -14,16 +14,16 @@ enum InsertionPoint<'a, Handle> {
     BeforeChild(&'a Handle, &'a Handle),
 }
 
-pub struct TreeBuilder<Handle, Sink: TreeSink<Handle>> {
+pub struct TreeBuilder<Sink: TreeSink> {
     sink: Sink,
     mode: InsertionMode,
-    document: Handle,
-    open_elements: Vec<Handle>,
+    document: Sink::Handle,
+    open_elements: Vec<Sink::Handle>,
     foster_parenting: bool,
 }
 
-impl<Handle, Sink: TreeSink<Handle>> TreeBuilder<Handle, Sink> {
-    pub fn new(sink: Sink) -> TreeBuilder<Handle, Sink> {
+impl<Sink: TreeSink> TreeBuilder<Sink> {
+    pub fn new(sink: Sink) -> TreeBuilder<Sink> {
         let document = sink.document();
 
         TreeBuilder {
@@ -35,30 +35,30 @@ impl<Handle, Sink: TreeSink<Handle>> TreeBuilder<Handle, Sink> {
         }
     }
 
-    fn current_node(&self) -> &Handle {
+    fn current_node(&self) -> &Sink::Handle {
         self.open_elements.last().expect("no current node")
     }
 
     // NOTE: currently this assumes its not a html fragment parser.
-    fn adjusted_current_node(&self) -> &Handle {
+    fn adjusted_current_node(&self) -> &Sink::Handle {
         self.current_node()
     }
 
-    fn last_open_element(&self, local_name: &str) -> (usize, Option<&Handle>) {
+    fn last_open_element(&self, local_name: &str) -> (usize, Option<&Sink::Handle>) {
         let index = self.open_elements.iter()
             .enumerate()
             .rev()
-            .find_map(|(index, handle)| (self.sink.element_name(&handle).local_name == local_name).then(|| index));
+            .find_map(|(index, handle)| (handle.element_name().local_name == local_name).then(|| index));
 
         let element = self.open_elements.iter()
-            .filter(|handle| self.sink.element_name(&handle).local_name == local_name)
+            .filter(|handle| handle.element_name().local_name == local_name)
             .last();
 
         (index.unwrap_or_default(), element)
     }
 
     fn not_foreign(&self, token: &Token) -> bool {
-        let element_name = self.sink.element_name(self.adjusted_current_node());
+        let element_name = self.adjusted_current_node().element_name();
 
         self.open_elements.is_empty()
             || element_name.is_namespace("http://www.w3.org/1999/xhtml")
@@ -68,8 +68,8 @@ impl<Handle, Sink: TreeSink<Handle>> TreeBuilder<Handle, Sink> {
             || (element_name.is_html_integration_point() && matches!(token, Token::Tag(Tag { kind: TagKind::Start, .. }) | Token::Character(_)))
     }
 
-    fn adjusted_insertion_location<'a>(&'a self, target: &'a Handle) -> InsertionPoint<'a, Handle> {
-        let name = self.sink.element_name(target);
+    fn adjusted_insertion_location<'a>(&'a self, target: &'a Sink::Handle) -> InsertionPoint<'a, Sink::Handle> {
+        let name = target.element_name();
 
         if self.foster_parenting && ["table", "tbody", "tfoot", "thead", "tr"].contains(&name.local_name) {
             let (template_index, template) = self.last_open_element("template");
@@ -89,15 +89,34 @@ impl<Handle, Sink: TreeSink<Handle>> TreeBuilder<Handle, Sink> {
         }
     }
 
-    fn appropriate_insertion_point<'a>(&'a self, override_: Option<&'a Handle>) -> InsertionPoint<'a, Handle> {
+    fn appropriate_insertion_point<'a>(&'a self, override_: Option<&'a Sink::Handle>) -> InsertionPoint<'a, Sink::Handle> {
         let target = override_.unwrap_or_else(|| self.current_node());
 
         self.adjusted_insertion_location(&target)
     }
 
-    // NOTE: ladybird follows the spec here, however i noticed that servo's html5ever doesnt seem
-    // to propeply follow the spec here, maybe we dont have to either?
-    fn create_element_for(&self, tag: &Tag) {
+    fn create_element_for(&mut self, tag: &Tag, intended_parent: &Sink::Handle) {
+        let document = intended_parent.node_document();
+
+        let name = ElementName::new_with_ns(&tag.name, "http://www.w3.org/1999/xhtml");
+
+        let is = tag.attributes.iter()
+            .find(|attribute| attribute.name.as_str() == "is")
+            .map(|attribute| attribute.value.as_str());
+
+        let registry = intended_parent.custom_element_registry();
+
+        let will_execute_script = self.sink.custom_element_definition(registry, name, is).is_some();
+
+        if will_execute_script {
+            // TODO: if the javascript executing stack is empty then perform a microtask checkpoint.
+        }
+
+        let element = self.sink.create_element(name, &tag.attributes);
+
+        if will_execute_script {
+            // TODO: invoke custom element reactions.
+        }
     }
 
     fn insert_foreign_element(&mut self) {
@@ -186,7 +205,7 @@ impl<Handle, Sink: TreeSink<Handle>> TreeBuilder<Handle, Sink> {
     }
 }
 
-impl<Handle, Sink: TreeSink<Handle>> TokenSink for TreeBuilder<Handle, Sink> {
+impl<Sink: TreeSink> TokenSink for TreeBuilder<Sink> {
     fn process(&mut self, token: Token) {
         if self.not_foreign(&token) {
             self.step(token);

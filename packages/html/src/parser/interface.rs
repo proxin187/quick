@@ -4,6 +4,7 @@ use super::quirks::QuirksMode;
 
 
 /// The local name of an element and its namespace.
+#[derive(Clone, Copy)]
 pub struct ElementName<'a> {
     pub namespace: Option<&'a str>,
     pub namespace_prefix: Option<&'a str>,
@@ -44,31 +45,57 @@ impl<'a> ElementName<'a> {
     }
 }
 
-/// Recieves updates on the tree.
-pub trait TreeSink<Handle> {
-    /// Returns the root document handle.
-    fn document(&self) -> Handle;
+/// A reference to a node in the dom.
+pub trait Node {
+    /// A custom element registry.
+    type CustomElementRegistry;
 
     /// Given a node, return the associated node document handle.
-    fn node_document(&self, handle: &Handle) -> &Handle;
+    fn node_document(&self) -> &Self;
 
-    /// Given a element node, return the element name.
-    fn element_name<'a>(&self, handle: &Handle) -> ElementName<'a>;
+    /// Given an element node, return the element name.
+    fn element_name<'a>(&self) -> ElementName<'a>;
+
+    /// Given an element, shadow root or document node, return its custom element registry.
+    fn custom_element_registry(&self) -> Option<Self::CustomElementRegistry>;
+}
+
+/// Recieves updates on the dom.
+pub trait TreeSink {
+    /// A custom element definition.
+    type CustomElementDefinition;
+
+    /// A custom element registry.
+    type CustomElementRegistry;
+
+    /// A handle to a node.
+    type Handle: Node<CustomElementRegistry = Self::CustomElementRegistry>;
+
+    /// Returns the root document handle.
+    fn document(&self) -> Self::Handle;
+
+    /// Given a registry, element name, and is, return the custom element definition if it exists.
+    fn custom_element_definition(
+        &self,
+        registry: Option<Self::CustomElementRegistry>,
+        name: ElementName,
+        is: Option<&str>
+    ) -> Option<Self::CustomElementDefinition>;
 
     /// Given a handle to a node, return the parent of said node if it exists.
-    fn parent_of(&self, handle: &Handle) -> Option<&Handle>;
+    fn parent_of(&self, handle: &Self::Handle) -> Option<&Self::Handle>;
 
     /// Called when a parse error is encountered.
     fn parse_error<Message: AsRef<str>>(&mut self, message: Message);
 
     /// Given a name and attributes, create an element.
-    fn create_element(&mut self, name: ElementName, attributes: &[Attribute]) -> Handle;
+    fn create_element(&mut self, name: ElementName, attributes: &[Attribute]) -> Self::Handle;
 
     /// Given some content, create a comment.
-    fn create_comment(&mut self, content: &str) -> Handle;
+    fn create_comment(&mut self, content: &str) -> Self::Handle;
 
     /// Given a parent and child node, append said child node into the dom as the last child of said parent node.
-    fn append(&mut self, parent: &Handle, child: &Handle);
+    fn append(&mut self, parent: &Self::Handle, child: &Self::Handle);
 
     /// Append a doctype to the document.
     fn append_doctype(&mut self, doctype: &Doctype);
