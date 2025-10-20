@@ -5,16 +5,16 @@ use super::quirks::QuirksMode;
 
 /// The local name of an element and its namespace.
 #[derive(Clone, Copy)]
-pub struct ElementName<'a> {
+pub struct QualifiedName<'a> {
     pub namespace: Option<&'a str>,
     pub namespace_prefix: Option<&'a str>,
     pub local_name: &'a str,
 }
 
-impl<'a> ElementName<'a> {
+impl<'a> QualifiedName<'a> {
     /// Create a new element name with a local_name and namespace.
-    pub fn new_with_ns(local_name: &'a str, namespace: &'a str) -> ElementName<'a> {
-        ElementName {
+    pub fn new_with_ns(local_name: &'a str, namespace: &'a str) -> QualifiedName<'a> {
+        QualifiedName {
             namespace: Some(namespace),
             namespace_prefix: None,
             local_name,
@@ -33,20 +33,28 @@ impl<'a> ElementName<'a> {
             && ["mi", "mo", "mn", "ms", "mtext"].contains(&self.local_name)
     }
 
-    /// Checks if the element is a mathml annotation xml element
+    /// Check if the element is a mathml annotation xml element
     pub fn is_mathml_annotation_xml(&self) -> bool {
         self.is_namespace("http://www.w3.org/1998/Math/MathML")
             && self.local_name == "annotation-xml"
     }
 
     // TODO: implement html integration point, im not sure if we really need this
+    /// Check if the element is a html integration point.
     pub fn is_html_integration_point(&self) -> bool {
         self.is_mathml_annotation_xml()
+    }
+
+    // TODO: form associated custom elements
+    /// Check if the element is a form associated element.
+    pub fn is_form_associated(&self) -> bool {
+        self.is_namespace("http://www.w3.org/1999/xhtml")
+            && ["button", "fieldset", "input", "object", "output", "select", "textarea", "img"].contains(&self.local_name)
     }
 }
 
 /// A reference to a node in the dom.
-pub trait Node {
+pub trait Node: Clone {
     /// A custom element registry.
     type CustomElementRegistry;
 
@@ -54,10 +62,16 @@ pub trait Node {
     fn node_document(&self) -> &Self;
 
     /// Given an element node, return the element name.
-    fn element_name<'a>(&self) -> ElementName<'a>;
+    fn element_name<'a>(&self) -> QualifiedName<'a>;
 
     /// Given an element, shadow root or document node, return its custom element registry.
     fn custom_element_registry(&self) -> Option<Self::CustomElementRegistry>;
+
+    /// Given a handle to a node, return the parent of said node if it exists.
+    fn parent(&self) -> Option<&Self>;
+
+    /// Given a node, qualified name, name and a value, append an attribute with those values.
+    fn append_attribute(&mut self, qualified_name: QualifiedName, name: &str, value: &str);
 }
 
 /// Recieves updates on the dom.
@@ -77,19 +91,23 @@ pub trait TreeSink {
     /// Given a registry, element name, and is, return the custom element definition if it exists.
     fn custom_element_definition(
         &self,
-        registry: Option<Self::CustomElementRegistry>,
-        name: ElementName,
+        registry: &Option<Self::CustomElementRegistry>,
+        name: QualifiedName,
         is: Option<&str>
     ) -> Option<Self::CustomElementDefinition>;
-
-    /// Given a handle to a node, return the parent of said node if it exists.
-    fn parent_of(&self, handle: &Self::Handle) -> Option<&Self::Handle>;
 
     /// Called when a parse error is encountered.
     fn parse_error<Message: AsRef<str>>(&mut self, message: Message);
 
     /// Given a name and attributes, create an element.
-    fn create_element(&mut self, name: ElementName, attributes: &[Attribute]) -> Self::Handle;
+    fn create_element(
+        &mut self,
+        document: &Self::Handle,
+        name: QualifiedName,
+        is: Option<&str>,
+        sync: bool,
+        registry: &Option<Self::CustomElementRegistry>
+    ) -> Self::Handle;
 
     /// Given some content, create a comment.
     fn create_comment(&mut self, content: &str) -> Self::Handle;

@@ -5,7 +5,7 @@ mod state;
 use crate::tokenizer::{TokenSink, Token, Tag, TagKind};
 
 use state::InsertionMode;
-use interface::{TreeSink, Node, ElementName};
+use interface::{TreeSink, Node, QualifiedName};
 use quirks::QuirksMode;
 
 
@@ -79,7 +79,7 @@ impl<Sink: TreeSink> TreeBuilder<Sink> {
                 InsertionPoint::LastChild(handle)
             } else if table.is_none() {
                 InsertionPoint::LastChild(&self.open_elements[0])
-            } else if let Some(handle) = table && let Some(parent) = self.sink.parent_of(&handle) {
+            } else if let Some(handle) = table && let Some(parent) = handle.parent() {
                 InsertionPoint::BeforeChild(handle, parent)
             } else {
                 InsertionPoint::LastChild(&self.open_elements[table_index - 1])
@@ -95,10 +95,10 @@ impl<Sink: TreeSink> TreeBuilder<Sink> {
         self.adjusted_insertion_location(&target)
     }
 
-    fn create_element_for(&mut self, tag: &Tag, intended_parent: &Sink::Handle) {
+    fn create_element_for(&mut self, tag: &Tag, namespace: &str, intended_parent: &Sink::Handle) -> Sink::Handle {
         let document = intended_parent.node_document();
 
-        let name = ElementName::new_with_ns(&tag.name, "http://www.w3.org/1999/xhtml");
+        let name = QualifiedName::new_with_ns(&tag.name, namespace);
 
         let is = tag.attributes.iter()
             .find(|attribute| attribute.name.as_str() == "is")
@@ -106,17 +106,26 @@ impl<Sink: TreeSink> TreeBuilder<Sink> {
 
         let registry = intended_parent.custom_element_registry();
 
-        let will_execute_script = self.sink.custom_element_definition(registry, name, is).is_some();
+        let will_execute_script = self.sink.custom_element_definition(&registry, name, is).is_some();
 
         if will_execute_script {
             // TODO: if the javascript executing stack is empty then perform a microtask checkpoint.
         }
 
-        let element = self.sink.create_element(name, &tag.attributes);
+        let element = self.sink.create_element(document, name, is, will_execute_script, &registry);
+
+        for attribute in tag.attributes.iter() {
+        }
 
         if will_execute_script {
             // TODO: invoke custom element reactions.
         }
+
+        // TODO: finish form associated thingy
+        if element.element_name().is_form_associated() {
+        }
+
+        element
     }
 
     fn insert_foreign_element(&mut self) {
@@ -165,19 +174,19 @@ impl<Sink: TreeSink> TreeBuilder<Sink> {
                 Token::Doctype(doctype) => self.sink.parse_error(format!("unexpected: {:?}", doctype)),
                 Token::Comment(content) => self.append_comment(content),
                 Token::Tag(tag) if tag.kind == TagKind::Start && tag.name.as_str() == "html" => {
-                    let name = ElementName::new_with_ns(tag.name.as_str(), "http://www.w3.org/1999/xhtml");
-
-                    let element = self.sink.create_element(name, &tag.attributes);
+                    let element = self.create_element_for(tag, "http://www.w3.org/1999/xhtml", &self.document.clone());
 
                     self.sink.append(&self.document, &element);
 
                     self.open_elements.push(element);
+
+                    self.mode = InsertionMode::BeforeHead;
                 },
                 Token::Tag(tag) if tag.kind == TagKind::End && !["head", "body", "html", "br"].contains(&tag.name.as_str()) => {
                     self.sink.parse_error(format!("unexpected: {:?}", tag));
                 },
                 _ => {
-                    let element = self.sink.create_element(ElementName::new_with_ns("html", "http://www.w3.org/1999/xhtml"), &[]);
+                    let element = self.sink.create_element(&self.document, QualifiedName::new_with_ns("html", "http://www.w3.org/1999/xhtml"), None, false, &None);
 
                     self.sink.append(&self.document, &element);
 
