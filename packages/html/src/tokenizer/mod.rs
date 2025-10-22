@@ -12,7 +12,6 @@ use std::iter::Peekable;
 
 use unicase::UniCase;
 
-
 #[derive(Debug, PartialEq)]
 struct DoctypeBuilder {
     name: DoctypeValueBuilder,

@@ -9,15 +9,39 @@ use interface::{TreeSink, Node, QualifiedName};
 use quirks::QuirksMode;
 
 
-enum InsertionPoint<'a, Handle> {
-    LastChild(&'a Handle),
-    BeforeChild(&'a Handle, &'a Handle),
+enum InsertionPoint<Handle> {
+    LastChild(Handle),
+    BeforeChild(Handle, Handle),
+}
+
+impl<Handle> InsertionPoint<Handle> {
+    pub fn parent<'a>(&'a self) -> &'a Handle {
+        match self {
+            InsertionPoint::LastChild(handle) => handle,
+            InsertionPoint::BeforeChild(_, handle) => handle,
+        }
+    }
+}
+
+struct ElementPointers<Handle> {
+    head: Option<Handle>,
+    form: Option<Handle>,
+}
+
+impl<Handle> Default for ElementPointers<Handle> {
+    fn default() -> ElementPointers<Handle> {
+        ElementPointers {
+            head: None,
+            form: None,
+        }
+    }
 }
 
 pub struct TreeBuilder<Sink: TreeSink> {
     sink: Sink,
     mode: InsertionMode,
     document: Sink::Handle,
+    element_pointers: ElementPointers<Sink::Handle>,
     open_elements: Vec<Sink::Handle>,
     foster_parenting: bool,
 }
@@ -30,6 +54,7 @@ impl<Sink: TreeSink> TreeBuilder<Sink> {
             sink,
             mode: InsertionMode::Initial,
             document,
+            element_pointers: ElementPointers::default(),
             open_elements: Vec::new(),
             foster_parenting: false,
         }
@@ -68,7 +93,7 @@ impl<Sink: TreeSink> TreeBuilder<Sink> {
             || (element_name.is_html_integration_point() && matches!(token, Token::Tag(Tag { kind: TagKind::Start, .. }) | Token::Character(_)))
     }
 
-    fn adjusted_insertion_location<'a>(&'a self, target: &'a Sink::Handle) -> InsertionPoint<'a, Sink::Handle> {
+    fn adjusted_insertion_location(&self, target: &Sink::Handle) -> InsertionPoint<Sink::Handle> {
         let name = target.element_name();
 
         if self.foster_parenting && ["table", "tbody", "tfoot", "thead", "tr"].contains(&name.local_name) {
@@ -76,28 +101,27 @@ impl<Sink: TreeSink> TreeBuilder<Sink> {
             let (table_index, table) = self.last_open_element("table");
 
             if let Some(handle) = template && table_index < template_index {
-                InsertionPoint::LastChild(handle)
+                InsertionPoint::LastChild(handle.clone())
             } else if table.is_none() {
-                InsertionPoint::LastChild(&self.open_elements[0])
+                InsertionPoint::LastChild(self.open_elements[0].clone())
             } else if let Some(handle) = table && let Some(parent) = handle.parent() {
-                InsertionPoint::BeforeChild(handle, parent)
+                InsertionPoint::BeforeChild(handle.clone(), parent.clone())
             } else {
-                InsertionPoint::LastChild(&self.open_elements[table_index - 1])
+                InsertionPoint::LastChild(self.open_elements[table_index - 1].clone())
             }
         } else {
-            InsertionPoint::LastChild(target)
+            InsertionPoint::LastChild(target.clone())
         }
     }
 
-    fn appropriate_insertion_point<'a>(&'a self, override_: Option<&'a Sink::Handle>) -> InsertionPoint<'a, Sink::Handle> {
+    fn appropriate_insertion_point(&self, override_: Option<&Sink::Handle>) -> InsertionPoint<Sink::Handle> {
         let target = override_.unwrap_or_else(|| self.current_node());
 
         self.adjusted_insertion_location(&target)
     }
 
+    // TODO: implement will_execute_script for javascript stuff
     fn create_element_for(&mut self, tag: &Tag, namespace: &str, intended_parent: &Sink::Handle) -> Sink::Handle {
-        let document = intended_parent.node_document();
-
         let name = QualifiedName::new_with_ns(&tag.name, namespace);
 
         let is = tag.attributes.iter()
@@ -108,34 +132,55 @@ impl<Sink: TreeSink> TreeBuilder<Sink> {
 
         let will_execute_script = self.sink.custom_element_definition(&registry, name, is).is_some();
 
-        if will_execute_script {
-            // TODO: if the javascript executing stack is empty then perform a microtask checkpoint.
-        }
-
-        let element = self.sink.create_element(document, name, is, will_execute_script, &registry);
+        let mut element = self.sink.create_element(intended_parent.node_document(), name, is, will_execute_script, &registry);
 
         for attribute in tag.attributes.iter() {
+            let name = QualifiedName::new_with_ns(attribute.name.as_str(), "");
+
+            element.append_attribute(name, attribute.value.as_str());
         }
 
-        if will_execute_script {
-            // TODO: invoke custom element reactions.
-        }
+        if let Some(form) = &self.element_pointers.form {
+            if element.element_name().is_form_associated()
+                && !self.open_elements.iter().any(|handle| handle.element_name().local_name == "template")
+                && (!element.element_name().is_listed() || element.has_attribute(QualifiedName::new_with_ns("form", "")))
+                && intended_parent.root() == form.root()
+            {
+                element.set_associated_form(form.clone());
 
-        // TODO: finish form associated thingy
-        if element.element_name().is_form_associated() {
+                element.set_parser_inserted();
+            }
         }
 
         element
     }
 
-    fn insert_foreign_element(&mut self) {
+    // TODO: custom elements reaction stack
+    fn insert_at(&mut self, element: &Sink::Handle, adjusted_insertion_location: InsertionPoint<Sink::Handle>) {
+        match adjusted_insertion_location {
+            InsertionPoint::LastChild(mut handle) => handle.append(element),
+            InsertionPoint::BeforeChild(mut handle, before) => handle.append_before(&before, element),
+        }
+    }
+
+    fn insert_foreign_element(&mut self, tag: &Tag, namespace: &str, only_add_to_element_stack: bool) -> Sink::Handle {
         let adjusted_insertion_location = self.appropriate_insertion_point(None);
+
+        let element = self.create_element_for(tag, namespace, adjusted_insertion_location.parent());
+
+        if !only_add_to_element_stack {
+            self.insert_at(&element, adjusted_insertion_location);
+        }
+
+        self.open_elements.push(element.clone());
+
+        element
     }
 
     fn append_comment(&mut self, content: &str) {
         let comment = self.sink.create_comment(content);
 
-        self.sink.append(&self.document, &comment);
+        self.document.append(&comment);
     }
 
     #[inline]
@@ -176,7 +221,7 @@ impl<Sink: TreeSink> TreeBuilder<Sink> {
                 Token::Tag(tag) if tag.kind == TagKind::Start && tag.name.as_str() == "html" => {
                     let element = self.create_element_for(tag, "http://www.w3.org/1999/xhtml", &self.document.clone());
 
-                    self.sink.append(&self.document, &element);
+                    self.document.append(&element);
 
                     self.open_elements.push(element);
 
@@ -188,7 +233,7 @@ impl<Sink: TreeSink> TreeBuilder<Sink> {
                 _ => {
                     let element = self.sink.create_element(&self.document, QualifiedName::new_with_ns("html", "http://www.w3.org/1999/xhtml"), None, false, &None);
 
-                    self.sink.append(&self.document, &element);
+                    self.document.append(&element);
 
                     self.open_elements.push(element);
 
@@ -205,8 +250,22 @@ impl<Sink: TreeSink> TreeBuilder<Sink> {
                     self.mode = InsertionMode::BeforeHead;
                 },
                 Token::Tag(tag) if tag.kind == TagKind::Start && tag.name.as_str() == "head" => {
+                    let element = self.insert_foreign_element(tag, "http://www.w3.org/1999/xhtml", false);
+
+                    self.element_pointers.head.replace(element);
+
+                    self.mode = InsertionMode::InHead;
+                },
+                Token::Tag(tag) if tag.kind == TagKind::End && !["head", "body", "html", "br"].contains(&tag.name.as_str()) => {
+                    self.sink.parse_error(format!("unexpected: {:?}", tag));
                 },
                 _ => {
+                    let tag = Tag::new(TagKind::Start, String::from("head"), false, Vec::new());
+                    let element = self.insert_foreign_element(&tag, "http://www.w3.org/1999/xhtml", false);
+
+                    self.element_pointers.head.replace(element);
+
+                    self.reprocess(token, InsertionMode::InHead);
                 },
             },
             _ => todo!(),

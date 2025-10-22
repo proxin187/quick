@@ -51,15 +51,24 @@ impl<'a> QualifiedName<'a> {
         self.is_namespace("http://www.w3.org/1999/xhtml")
             && ["button", "fieldset", "input", "object", "output", "select", "textarea", "img"].contains(&self.local_name)
     }
+
+    /// Check if the element is a listed element.
+    pub fn is_listed(&self) -> bool {
+        self.is_namespace("http://www.w3.org/1999/xhtml")
+            && ["button", "fieldset", "input", "object", "output", "select", "textarea"].contains(&self.local_name)
+    }
 }
 
 /// A reference to a node in the dom.
-pub trait Node: Clone {
+pub trait Node: Clone + PartialEq {
     /// A custom element registry.
     type CustomElementRegistry;
 
     /// Given a node, return the associated node document handle.
     fn node_document(&self) -> &Self;
+
+    /// Given a node, return its root node.
+    fn root(&self) -> &Self;
 
     /// Given an element node, return the element name.
     fn element_name<'a>(&self) -> QualifiedName<'a>;
@@ -70,8 +79,23 @@ pub trait Node: Clone {
     /// Given a handle to a node, return the parent of said node if it exists.
     fn parent(&self) -> Option<&Self>;
 
+    /// Given a parent and child node, append said child node into the dom as the last child of said parent node.
+    fn append(&mut self, child: &Self);
+
+    /// Append a child node before another node.
+    fn append_before(&mut self, before: &Self, child: &Self);
+
     /// Given a node, qualified name, name and a value, append an attribute with those values.
-    fn append_attribute(&mut self, qualified_name: QualifiedName, name: &str, value: &str);
+    fn append_attribute(&mut self, name: QualifiedName, value: &str);
+
+    /// Given a node and a qualified name, return true if there is an attribute under the qualified name.
+    fn has_attribute(&self, name: QualifiedName) -> bool;
+
+    /// Given a node, set the nodes parser inserted flag.
+    fn set_parser_inserted(&self);
+
+    /// Associate a node with a form element.
+    fn set_associated_form(&self, form: Self);
 }
 
 /// Recieves updates on the dom.
@@ -111,9 +135,6 @@ pub trait TreeSink {
 
     /// Given some content, create a comment.
     fn create_comment(&mut self, content: &str) -> Self::Handle;
-
-    /// Given a parent and child node, append said child node into the dom as the last child of said parent node.
-    fn append(&mut self, parent: &Self::Handle, child: &Self::Handle);
 
     /// Append a doctype to the document.
     fn append_doctype(&mut self, doctype: &Doctype);
