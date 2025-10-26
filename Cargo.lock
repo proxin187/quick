@@ -6,30 +6,8 @@ version = 4
 name = "quick"
 version = "0.1.0"
 dependencies = [
- "quick_html",
- "quick_layout",
- "quick_paint",
- "quick_style",
-]
-
-[[package]]
-name = "quick_html"
-version = "0.1.0"
-dependencies = [
  "unicase",
 ]
-
-[[package]]
-name = "quick_layout"
-version = "0.1.0"
-
-[[package]]
-name = "quick_paint"
-version = "0.1.0"
-
-[[package]]
-name = "quick_style"
-version = "0.1.0"
 
 [[package]]
 name = "unicase"

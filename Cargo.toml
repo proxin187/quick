@@ -1,6 +1,9 @@
+[package]
+name = "quick"
+version = "0.1.0"
+edition = "2024"
 
-[workspace]
-resolver = "2"
-members = ["packages/*"]
+[dependencies]
+unicase = "2.8.1"
 
 

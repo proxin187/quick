@@ -1,9 +1,6 @@
 # Quick
 
-Quick is a stealth focused headless browser engine for website automation.
-
-> [!WARNING]
-> Quick is far from done and not ready for use.
+Quick is a hobby browser and engine designed from scratch.
 
 ## Roadmap
 - [X] [HTML standard](https://html.spec.whatwg.org/multipage/parsing.html#tokenization) compliant tokenizer.

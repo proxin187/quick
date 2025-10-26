@@ -183,6 +183,13 @@ impl<Sink: TreeSink> TreeBuilder<Sink> {
         self.document.append(&comment);
     }
 
+    fn append_character(&mut self, character: char) {
+        let adjusted_insertion_location = self.appropriate_insertion_point(None);
+
+        if !adjusted_insertion_location.parent().is_node("document") {
+        }
+    }
+
     #[inline]
     fn reprocess(&mut self, token: Token, mode: InsertionMode) {
         self.mode = mode;
@@ -266,6 +273,11 @@ impl<Sink: TreeSink> TreeBuilder<Sink> {
                     self.element_pointers.head.replace(element);
 
                     self.reprocess(token, InsertionMode::InHead);
+                },
+            },
+            InsertionMode::InHead => match token {
+                Token::Character('\u{0009}' | '\u{000a}' | '\u{000c}' | '\u{000d}' | ' ') => {},
+                _ => {
                 },
             },
             _ => todo!(),

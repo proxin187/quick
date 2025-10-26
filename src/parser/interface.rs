@@ -1,4 +1,4 @@
-use crate::tokenizer::{Attribute, Doctype};
+use crate::tokenizer::Doctype;
 
 use super::quirks::QuirksMode;
 
@@ -96,6 +96,9 @@ pub trait Node: Clone + PartialEq {
 
     /// Associate a node with a form element.
     fn set_associated_form(&self, form: Self);
+
+    /// Check if node is of a specific kind.
+    fn is_node(&self, kind: &str) -> bool;
 }
 
 /// Recieves updates on the dom.
