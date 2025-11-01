@@ -1,11 +1,10 @@
-use super::node::Node;
+use super::Node;
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 
-#[derive(Clone)]
-pub struct DocumentFragment {
+pub struct Element {
     node: Rc<RefCell<Node>>,
 }
 
