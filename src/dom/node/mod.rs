@@ -2,6 +2,9 @@ mod document_fragment;
 mod document;
 mod element;
 
+use super::iterators::NodeList;
+use super::cast::{Cast, UpcastRef};
+
 use document_fragment::DocumentFragment;
 use document::Document;
 use element::Element;
@@ -9,33 +12,6 @@ use element::Element;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-
-/// A NodeList is an iterator over nodes, a NodeList is cheaply cloned as everything inside is
-/// wrapped in Rc.
-#[derive(Clone)]
-pub struct NodeList {
-    next: Option<Rc<RefCell<Node>>>,
-    f: fn(&Node) -> Option<Rc<RefCell<Node>>>,
-}
-
-impl NodeList {
-    pub fn new(next: Option<Rc<RefCell<Node>>>, f: fn(&Node) -> Option<Rc<RefCell<Node>>>) -> NodeList {
-        NodeList {
-            next,
-            f,
-        }
-    }
-}
-
-impl Iterator for NodeList {
-    type Item = Rc<RefCell<Node>>;
-
-    fn next(&mut self) -> Option<Rc<RefCell<Node>>> {
-        let next = self.next.clone().and_then(|node| (self.f)(&node.borrow()));
-
-        next.map(|next| self.next.replace(next)).unwrap_or_else(|| self.next.clone())
-    }
-}
 
 #[derive(Clone)]
 pub enum NodeType {
@@ -69,6 +45,12 @@ pub struct Node {
 
     /// The count of children of the node.
     child_count: usize,
+}
+
+impl Cast for Node {
+    fn upcast<'a, T>(&self) -> UpcastRef<'a, T, Node> {
+        panic!("invalid cast")
+    }
 }
 
 impl Node {
