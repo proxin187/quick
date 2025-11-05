@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 
 pub struct Element {
-    node: Rc<RefCell<Node>>,
+    owner: Rc<RefCell<Node>>,
 }
 
 

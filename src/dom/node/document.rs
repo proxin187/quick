@@ -43,7 +43,7 @@ impl Range {
 }
 
 pub struct Document {
-    pub owner_node: Rc<RefCell<Node>>,
+    pub owner: Rc<RefCell<Node>>,
     pub ranges: Vec<Range>,
 }
 
@@ -53,7 +53,7 @@ impl Document {
             parent.borrow_mut().remove(node.clone());
         }
 
-        if !Rc::ptr_eq(&node.borrow().node_document.borrow().owner_node, &self.owner_node) {
+        if !Rc::ptr_eq(&node.borrow().node_document.borrow().owner, &self.owner) {
         }
     }
 }

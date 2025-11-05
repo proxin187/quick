@@ -3,7 +3,7 @@ mod document;
 mod element;
 
 use super::iterators::NodeList;
-use super::cast::{Cast, UpcastRef};
+use super::inheritance::{Castable, UpcastRef};
 
 use document_fragment::DocumentFragment;
 use document::Document;
@@ -11,6 +11,7 @@ use element::Element;
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::any::TypeId;
 
 
 #[derive(Clone)]
@@ -47,9 +48,9 @@ pub struct Node {
     child_count: usize,
 }
 
-impl Cast for Node {
-    fn upcast<'a, T>(&self) -> UpcastRef<'a, T, Node> {
-        panic!("invalid cast")
+impl Castable for Node {
+    fn upcast<T: 'static>(&self) -> Option<UpcastRef<T>> {
+        todo!()
     }
 }
 
