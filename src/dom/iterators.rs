@@ -4,8 +4,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 
-/// A NodeList is an iterator over nodes, a NodeList is cheaply cloned as everything inside is
-/// wrapped in Rc.
+/// A NodeList is an iterator over nodes, a NodeList is cheaply cloned.
 #[derive(Clone)]
 pub struct NodeList {
     next: Option<Rc<RefCell<Node>>>,
@@ -31,21 +30,16 @@ impl Iterator for NodeList {
     }
 }
 
-// TODO: implement TreeDescendants, first we will have to rework the node system, we will have to
-// be able to upcast a node into eg. an element, and downcast that element back down to a node.
-
 /// TreeDescendants is an iterator over all tree descendants of a node.
 #[derive(Clone)]
 pub struct TreeDescendants {
-    next: Option<Rc<RefCell<Node>>>,
-    f: fn(&Node) -> Option<Rc<RefCell<Node>>>,
+    nodes: NodeList,
 }
 
 impl TreeDescendants {
-    pub fn new(next: Option<Rc<RefCell<Node>>>, f: fn(&Node) -> Option<Rc<RefCell<Node>>>) -> TreeDescendants {
+    pub fn new(parent: Rc<RefCell<Node>>) -> TreeDescendants {
         TreeDescendants {
-            next,
-            f,
+            nodes: parent.borrow().children(),
         }
     }
 }
@@ -54,6 +48,8 @@ impl Iterator for TreeDescendants {
     type Item = Rc<RefCell<Node>>;
 
     fn next(&mut self) -> Option<Rc<RefCell<Node>>> {
+        self.nodes.flat_map(||)
+
         None
     }
 }

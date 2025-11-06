@@ -3,15 +3,13 @@ mod document;
 mod element;
 
 use super::iterators::NodeList;
-use super::inheritance::{Castable, UpcastRef};
 
 use document_fragment::DocumentFragment;
 use document::Document;
 use element::Element;
 
 use std::cell::RefCell;
-use std::rc::Rc;
-use std::any::TypeId;
+use std::rc::{Rc, Weak};
 
 
 #[derive(Clone)]
@@ -27,13 +25,13 @@ pub struct Node {
     node_type: NodeType,
 
     /// The owner document of the node.
-    node_document: Rc<RefCell<Document>>,
+    node_document: Weak<RefCell<Document>>,
 
     /// The parent of the node.
-    parent: Option<Rc<RefCell<Node>>>,
+    parent: Option<Weak<RefCell<Node>>>,
 
     /// Previous sibling of the node.
-    previous_sibling: Option<Rc<RefCell<Node>>>,
+    previous_sibling: Option<Weak<RefCell<Node>>>,
 
     /// Next sibling of the node.
     next_sibling: Option<Rc<RefCell<Node>>>,
@@ -42,19 +40,23 @@ pub struct Node {
     first_child: Option<Rc<RefCell<Node>>>,
 
     /// The last child of the node.
-    last_child: Option<Rc<RefCell<Node>>>,
+    last_child: Option<Weak<RefCell<Node>>>,
 
     /// The count of children of the node.
     child_count: usize,
 }
 
-impl Castable for Node {
-    fn upcast<T: 'static>(&self) -> Option<UpcastRef<T>> {
+impl Node {
+    pub fn first_descendant(node: Rc<RefCell<Node>>) -> Rc<RefCell<Node>> {
+        let first_child = node.borrow().first_child.clone();
+
+        first_child.map(|child| Node::first_descendant(child)).unwrap_or(node)
+    }
+
+    pub fn descendants(&self) -> NodeList {
         todo!()
     }
-}
 
-impl Node {
     pub fn children(&self) -> NodeList {
         NodeList::new(self.first_child.clone(), |node| node.next_sibling.clone())
     }

@@ -1,11 +1,11 @@
 use super::Node;
 
 use std::cell::RefCell;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 
 pub struct Element {
-    owner: Rc<RefCell<Node>>,
+    owner: Weak<RefCell<Node>>,
 }
 
 

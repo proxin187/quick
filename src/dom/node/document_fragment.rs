@@ -1,11 +1,11 @@
 use super::Node;
 
 use std::cell::RefCell;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 
 pub struct DocumentFragment {
-    owner: Rc<RefCell<Node>>,
+    owner: Weak<RefCell<Node>>,
 }
 
 

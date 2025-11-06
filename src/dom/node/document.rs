@@ -1,7 +1,7 @@
 use super::Node;
 
 use std::cell::RefCell;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 
 pub struct Boundary {
@@ -42,18 +42,24 @@ impl Range {
     }
 }
 
+// TODO: we will have to make a wrapper around Rc and Weak so that we dont have to call
+// upgrade().expect("node dropped") every single time we want to have a weak pointer.
+
 pub struct Document {
-    pub owner: Rc<RefCell<Node>>,
+    pub owner: Weak<RefCell<Node>>,
     pub ranges: Vec<Range>,
 }
 
 impl Document {
     pub fn adopt(&self, node: Rc<RefCell<Node>>) {
-        if let Some(parent) = &node.borrow().parent {
+        if let Some(parent) = &node.borrow().parent.clone().and_then(|parent| parent.upgrade()) {
             parent.borrow_mut().remove(node.clone());
         }
 
-        if !Rc::ptr_eq(&node.borrow().node_document.borrow().owner, &self.owner) {
+        let document = node.borrow().node_document.upgrade().expect("node document dropped").borrow().owner.upgrade().expect("node dropped");
+        let old_document = self.owner.upgrade().expect("node dropped");
+
+        if !Rc::ptr_eq(&document, &old_document) {
         }
     }
 }
