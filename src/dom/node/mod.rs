@@ -3,20 +3,20 @@ mod document;
 mod element;
 
 use super::iterators::NodeList;
+use super::gc::{OwnedDom, WeakDom};
 
 use document_fragment::DocumentFragment;
 use document::Document;
 use element::Element;
 
-use std::cell::RefCell;
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 
 
 #[derive(Clone)]
 pub enum NodeType {
-    Element(Rc<RefCell<Element>>),
-    Document(Rc<RefCell<Document>>),
-    DocumentFragment(Rc<RefCell<DocumentFragment>>),
+    Element(OwnedDom<Element>),
+    Document(OwnedDom<Document>),
+    DocumentFragment(OwnedDom<DocumentFragment>),
 }
 
 #[derive(Clone)]
@@ -25,29 +25,29 @@ pub struct Node {
     node_type: NodeType,
 
     /// The owner document of the node.
-    node_document: Weak<RefCell<Document>>,
+    node_document: WeakDom<Document>,
 
     /// The parent of the node.
-    parent: Option<Weak<RefCell<Node>>>,
+    parent: Option<WeakDom<Node>>,
 
     /// Previous sibling of the node.
-    previous_sibling: Option<Weak<RefCell<Node>>>,
+    previous_sibling: Option<WeakDom<Node>>,
 
     /// Next sibling of the node.
-    next_sibling: Option<Rc<RefCell<Node>>>,
+    next_sibling: Option<OwnedDom<Node>>,
 
     /// The first child of the node.
-    first_child: Option<Rc<RefCell<Node>>>,
+    first_child: Option<OwnedDom<Node>>,
 
     /// The last child of the node.
-    last_child: Option<Weak<RefCell<Node>>>,
+    last_child: Option<WeakDom<Node>>,
 
     /// The count of children of the node.
     child_count: usize,
 }
 
 impl Node {
-    pub fn first_descendant(node: Rc<RefCell<Node>>) -> Rc<RefCell<Node>> {
+    pub fn first_descendant(node: OwnedDom<Node>) -> OwnedDom<Node> {
         let first_child = node.borrow().first_child.clone();
 
         first_child.map(|child| Node::first_descendant(child)).unwrap_or(node)
@@ -58,7 +58,7 @@ impl Node {
     }
 
     pub fn children(&self) -> NodeList {
-        NodeList::new(self.first_child.clone(), |node| node.next_sibling.clone())
+        NodeList::new(self.first_child.clone().map(|node| WeakDom::new_from_owned(node)), |node| node.next_sibling.clone().map(|node| WeakDom::new_from_owned(node)))
     }
 
     pub fn index(&self) -> usize {
@@ -66,43 +66,43 @@ impl Node {
             .count()
     }
 
-    fn insert(&mut self, new_node: Rc<RefCell<Node>>, child: Option<Rc<RefCell<Node>>>) {
+    fn insert(&mut self, new_node: OwnedDom<Node>, child: Option<WeakDom<Node>>) {
         let nodes = matches!(new_node.borrow().node_type, NodeType::DocumentFragment(_))
-            .then(|| new_node.borrow().children().collect::<Vec<Rc<RefCell<Node>>>>())
-            .unwrap_or_else(|| vec![new_node.clone()]);
+            .then(|| new_node.borrow().children().collect::<Vec<WeakDom<Node>>>())
+            .unwrap_or_else(|| vec![WeakDom::new_from_owned(Rc::clone(&new_node))]);
 
         if nodes.len() > 0  {
             if let NodeType::DocumentFragment(_) = new_node.borrow().node_type {
                 for node in &nodes {
-                    node.borrow_mut().remove(Rc::clone(&node));
+                    new_node.borrow_mut().remove(node.upgrade());
                 }
             }
 
             if let Some(parent) = &self.parent && let Some(child) = &child {
-                for range in self.node_document.borrow_mut().ranges.iter_mut() {
+                for range in self.node_document.upgrade().borrow_mut().ranges.iter_mut() {
                     range.adjust_offset(parent, child, nodes.len());
                 }
             }
 
-            let previous_sibling = child.map(|node| node.borrow().previous_sibling.clone())
+            let previous_sibling = child.map(|node| node.upgrade().borrow().previous_sibling.clone())
                 .unwrap_or_else(|| self.last_child.clone());
 
             for node in nodes {
-                self.node_document.borrow().adopt(node.clone());
+                self.node_document.upgrade().borrow().adopt(node.clone());
             }
         }
     }
 
-    fn pre_insert(&mut self, node: Node, child: Rc<RefCell<Node>>) {
+    fn pre_insert(&mut self, node: Node, child: OwnedDom<Node>) {
     }
 
-    fn remove(&mut self, node: Rc<RefCell<Node>>) {
+    fn remove(&mut self, node: OwnedDom<Node>) {
     }
 
     pub fn append(&mut self, node: Node) {
     }
 
-    pub fn insert_before(&mut self, node: Rc<RefCell<Node>>, child: Option<Node>) {
+    pub fn insert_before(&mut self, node: OwnedDom<Node>, child: Option<Node>) {
     }
 }
 

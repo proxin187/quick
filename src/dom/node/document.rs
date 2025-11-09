@@ -1,16 +1,17 @@
 use super::Node;
 
-use std::cell::RefCell;
+use crate::dom::gc::WeakDom;
+
 use std::rc::{Rc, Weak};
 
 
 pub struct Boundary {
-    container: Rc<RefCell<Node>>,
+    container: WeakDom<Node>,
     offset: usize,
 }
 
 impl Boundary {
-    pub fn new(container: Rc<RefCell<Node>>, offset: usize) -> Boundary {
+    pub fn new(container: WeakDom<Node>, offset: usize) -> Boundary {
         Boundary {
             container,
             offset,
@@ -31,35 +32,32 @@ impl Range {
         }
     }
 
-    pub fn adjust_offset(&mut self, parent: &Rc<RefCell<Node>>, child: &Rc<RefCell<Node>>, count: usize) {
-        if Rc::ptr_eq(&self.start.container, parent) && self.start.offset > child.borrow().index() {
+    pub fn adjust_offset(&mut self, parent: &WeakDom<Node>, child: &WeakDom<Node>, count: usize) {
+        if Weak::ptr_eq(&self.start.container.inner, &parent.inner) && self.start.offset > child.upgrade().borrow().index() {
             self.start.offset += count;
         }
 
-        if Rc::ptr_eq(&self.end.container, parent) && self.end.offset > child.borrow().index() {
+        if Weak::ptr_eq(&self.end.container.inner, &parent.inner) && self.end.offset > child.upgrade().borrow().index() {
             self.end.offset += count;
         }
     }
 }
 
-// TODO: we will have to make a wrapper around Rc and Weak so that we dont have to call
-// upgrade().expect("node dropped") every single time we want to have a weak pointer.
-
 pub struct Document {
-    pub owner: Weak<RefCell<Node>>,
+    pub owner: WeakDom<Node>,
     pub ranges: Vec<Range>,
 }
 
 impl Document {
-    pub fn adopt(&self, node: Rc<RefCell<Node>>) {
-        if let Some(parent) = &node.borrow().parent.clone().and_then(|parent| parent.upgrade()) {
-            parent.borrow_mut().remove(node.clone());
+    pub fn adopt(&self, weak_node: WeakDom<Node>) {
+        let node = weak_node.upgrade();
+
+        if let Some(parent) = &Rc::clone(&node).borrow().parent {
+            parent.upgrade().borrow_mut().remove(Rc::clone(&node));
         }
 
-        let document = node.borrow().node_document.upgrade().expect("node document dropped").borrow().owner.upgrade().expect("node dropped");
-        let old_document = self.owner.upgrade().expect("node dropped");
-
-        if !Rc::ptr_eq(&document, &old_document) {
+        if !Weak::ptr_eq(&node.borrow().node_document.upgrade().borrow().owner.inner, &self.owner.inner) {
+            // TODO: finish adopt
         }
     }
 }

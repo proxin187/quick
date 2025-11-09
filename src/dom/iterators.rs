@@ -1,4 +1,5 @@
-use crate::dom::node::Node;
+use super::node::Node;
+use super::gc::WeakDom;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -7,26 +8,31 @@ use std::rc::Rc;
 /// A NodeList is an iterator over nodes, a NodeList is cheaply cloned.
 #[derive(Clone)]
 pub struct NodeList {
-    next: Option<Rc<RefCell<Node>>>,
-    f: fn(&Node) -> Option<Rc<RefCell<Node>>>,
+    prev: Option<WeakDom<Node>>,
+    f: fn(&Node) -> Option<WeakDom<Node>>,
 }
 
 impl NodeList {
-    pub fn new(next: Option<Rc<RefCell<Node>>>, f: fn(&Node) -> Option<Rc<RefCell<Node>>>) -> NodeList {
+    pub fn new(prev: Option<WeakDom<Node>>, f: fn(&Node) -> Option<WeakDom<Node>>) -> NodeList {
         NodeList {
-            next,
+            prev,
             f,
         }
     }
 }
 
 impl Iterator for NodeList {
-    type Item = Rc<RefCell<Node>>;
+    type Item = WeakDom<Node>;
 
-    fn next(&mut self) -> Option<Rc<RefCell<Node>>> {
-        let next = self.next.clone().and_then(|node| (self.f)(&node.borrow()));
+    fn next(&mut self) -> Option<WeakDom<Node>> {
+        match &self.prev {
+            Some(prev) => {
+                let next = (self.f)(&prev.upgrade().borrow());
 
-        next.map(|next| self.next.replace(next)).unwrap_or_else(|| self.next.clone())
+                next.map(|next| self.prev.replace(next)).unwrap_or_else(|| self.prev.clone())
+            },
+            None => None,
+        }
     }
 }
 
@@ -37,9 +43,11 @@ pub struct TreeDescendants {
 }
 
 impl TreeDescendants {
-    pub fn new(parent: Rc<RefCell<Node>>) -> TreeDescendants {
+    pub fn new(parent: WeakDom<Node>) -> TreeDescendants {
         TreeDescendants {
-            nodes: parent.borrow().children(),
+            nodes: parent.upgrade()
+                .borrow()
+                .children(),
         }
     }
 }
@@ -48,9 +56,13 @@ impl Iterator for TreeDescendants {
     type Item = Rc<RefCell<Node>>;
 
     fn next(&mut self) -> Option<Rc<RefCell<Node>>> {
+        /*
         self.nodes.flat_map(||)
 
         None
+        */
+
+        todo!()
     }
 }
 
