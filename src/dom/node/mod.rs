@@ -2,7 +2,7 @@ mod document_fragment;
 mod document;
 mod element;
 
-use super::iterators::NodeList;
+use super::iterators::{NodeIterator, TreeIterator};
 use super::gc::{OwnedDom, WeakDom};
 
 use document_fragment::DocumentFragment;
@@ -28,13 +28,13 @@ pub struct Node {
     node_document: WeakDom<Document>,
 
     /// The parent of the node.
-    parent: Option<WeakDom<Node>>,
+    pub(crate) parent: Option<WeakDom<Node>>,
 
     /// Previous sibling of the node.
-    previous_sibling: Option<WeakDom<Node>>,
+    pub(crate) previous_sibling: Option<WeakDom<Node>>,
 
     /// Next sibling of the node.
-    next_sibling: Option<OwnedDom<Node>>,
+    pub(crate) next_sibling: Option<OwnedDom<Node>>,
 
     /// The first child of the node.
     first_child: Option<OwnedDom<Node>>,
@@ -53,16 +53,16 @@ impl Node {
         first_child.map(|child| Node::first_descendant(child)).unwrap_or(node)
     }
 
-    pub fn descendants(&self) -> NodeList {
-        todo!()
+    pub fn descendants(&self) -> TreeIterator {
+        TreeIterator::new(self.first_child.clone().map(|child| WeakDom::new_from_owned(Node::first_descendant(child))))
     }
 
-    pub fn children(&self) -> NodeList {
-        NodeList::new(self.first_child.clone().map(|node| WeakDom::new_from_owned(node)), |node| node.next_sibling.clone().map(|node| WeakDom::new_from_owned(node)))
+    pub fn children(&self) -> NodeIterator {
+        NodeIterator::new(self.first_child.clone().map(|node| WeakDom::new_from_owned(node)), |node| node.next_sibling.clone().map(|node| WeakDom::new_from_owned(node)))
     }
 
     pub fn index(&self) -> usize {
-        NodeList::new(self.previous_sibling.clone(), |node| node.previous_sibling.clone())
+        NodeIterator::new(self.previous_sibling.clone(), |node| node.previous_sibling.clone())
             .count()
     }
 

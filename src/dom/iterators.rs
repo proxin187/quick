@@ -1,27 +1,24 @@
 use super::node::Node;
 use super::gc::WeakDom;
 
-use std::cell::RefCell;
-use std::rc::Rc;
 
-
-/// A NodeList is an iterator over nodes, a NodeList is cheaply cloned.
+/// A NodeIterator is an iterator over nodes, a NodeIterator is cheaply cloned.
 #[derive(Clone)]
-pub struct NodeList {
+pub struct NodeIterator {
     prev: Option<WeakDom<Node>>,
     f: fn(&Node) -> Option<WeakDom<Node>>,
 }
 
-impl NodeList {
-    pub fn new(prev: Option<WeakDom<Node>>, f: fn(&Node) -> Option<WeakDom<Node>>) -> NodeList {
-        NodeList {
+impl NodeIterator {
+    pub fn new(prev: Option<WeakDom<Node>>, f: fn(&Node) -> Option<WeakDom<Node>>) -> NodeIterator {
+        NodeIterator {
             prev,
             f,
         }
     }
 }
 
-impl Iterator for NodeList {
+impl Iterator for NodeIterator {
     type Item = WeakDom<Node>;
 
     fn next(&mut self) -> Option<WeakDom<Node>> {
@@ -36,33 +33,35 @@ impl Iterator for NodeList {
     }
 }
 
-/// TreeDescendants is an iterator over all tree descendants of a node.
+/// TreeIterator is an iterator over all tree descendants of a node.
 #[derive(Clone)]
-pub struct TreeDescendants {
-    nodes: NodeList,
+pub struct TreeIterator {
+    prev: Option<WeakDom<Node>>,
 }
 
-impl TreeDescendants {
-    pub fn new(parent: WeakDom<Node>) -> TreeDescendants {
-        TreeDescendants {
-            nodes: parent.upgrade()
-                .borrow()
-                .children(),
+impl TreeIterator {
+    pub fn new(prev: Option<WeakDom<Node>>) -> TreeIterator {
+        TreeIterator {
+            prev,
         }
     }
 }
 
-impl Iterator for TreeDescendants {
-    type Item = Rc<RefCell<Node>>;
+impl Iterator for TreeIterator {
+    type Item = WeakDom<Node>;
 
-    fn next(&mut self) -> Option<Rc<RefCell<Node>>> {
-        /*
-        self.nodes.flat_map(||)
+    // TODO: this algorithm only iterates over leaf nodes, we also want it to iterate over internal
+    // nodes.
+    fn next(&mut self) -> Option<WeakDom<Node>> {
+        let prev = self.prev.clone().map(|prev| Node::first_descendant(prev.upgrade()));
 
-        None
-        */
-
-        todo!()
+        if let Some(node) = &prev && let Some(sibling) = node.borrow().next_sibling.clone() {
+            self.prev.replace(WeakDom::new_from_owned(sibling))
+        } else if let Some(node) = &prev && let Some(parent) = node.borrow().parent.clone() {
+            self.prev.replace(parent)
+        } else {
+            None
+        }
     }
 }
 
