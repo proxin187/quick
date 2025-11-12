@@ -37,32 +37,43 @@ impl Iterator for NodeIterator {
 #[derive(Clone)]
 pub struct TreeIterator {
     prev: Option<WeakDom<Node>>,
+    depth: usize,
 }
 
 impl TreeIterator {
     pub fn new(prev: Option<WeakDom<Node>>) -> TreeIterator {
         TreeIterator {
             prev,
+            depth: 0,
         }
     }
 }
 
-impl Iterator for TreeIterator {
+impl<'a> Iterator for TreeIterator {
     type Item = WeakDom<Node>;
 
-    // TODO: this algorithm only iterates over leaf nodes, we also want it to iterate over internal
-    // nodes.
     fn next(&mut self) -> Option<WeakDom<Node>> {
-        let prev = self.prev.clone().map(|prev| Node::first_descendant(prev.upgrade()));
+        let prev = self.prev.take();
 
-        if let Some(node) = &prev && let Some(sibling) = node.borrow().next_sibling.clone() {
-            self.prev.replace(WeakDom::new_from_owned(sibling))
-        } else if let Some(node) = &prev && let Some(parent) = node.borrow().parent.clone() {
-            self.prev.replace(parent)
+        if let Some(node) = &self.prev && let Some(child) = node.upgrade().borrow().first_child.clone() {
+            self.prev = Some(WeakDom::new_from_owned(child));
+
+            self.depth += 1;
         } else {
-            None
+            for node in NodeIterator::new(self.prev.clone(), |node| node.parent.clone()) {
+                if let Some(sibling) = node.upgrade().borrow().next_sibling.clone() {
+                    self.prev = Some(WeakDom::new_from_owned(sibling));
+
+                    break;
+                } else {
+                    self.depth -= 1;
+                }
+            }
         }
+
+        prev
     }
 }
+
 
 

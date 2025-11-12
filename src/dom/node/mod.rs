@@ -37,7 +37,7 @@ pub struct Node {
     pub(crate) next_sibling: Option<OwnedDom<Node>>,
 
     /// The first child of the node.
-    first_child: Option<OwnedDom<Node>>,
+    pub(crate) first_child: Option<OwnedDom<Node>>,
 
     /// The last child of the node.
     last_child: Option<WeakDom<Node>>,
@@ -47,7 +47,7 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn first_descendant(node: OwnedDom<Node>) -> OwnedDom<Node> {
+    fn first_descendant(node: OwnedDom<Node>) -> OwnedDom<Node> {
         let first_child = node.borrow().first_child.clone();
 
         first_child.map(|child| Node::first_descendant(child)).unwrap_or(node)
