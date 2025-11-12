@@ -53,27 +53,26 @@ impl<'a> Iterator for TreeIterator {
     type Item = WeakDom<Node>;
 
     fn next(&mut self) -> Option<WeakDom<Node>> {
-        let prev = self.prev.take();
+        let prev = self.prev.take()?;
 
-        if let Some(node) = &self.prev && let Some(child) = node.upgrade().borrow().first_child.clone() {
+        if let Some(child) = prev.upgrade().borrow().first_child.clone() {
             self.prev = Some(WeakDom::new_from_owned(child));
 
             self.depth += 1;
         } else {
             for node in NodeIterator::new(self.prev.clone(), |node| node.parent.clone()) {
-                if let Some(sibling) = node.upgrade().borrow().next_sibling.clone() {
+                if let Some(sibling) = node.upgrade().borrow().next_sibling.clone() && self.depth > 0 {
                     self.prev = Some(WeakDom::new_from_owned(sibling));
 
                     break;
-                } else {
+                } else if self.depth > 0 {
                     self.depth -= 1;
                 }
             }
         }
 
-        prev
+        Some(prev)
     }
 }
-
 
 
