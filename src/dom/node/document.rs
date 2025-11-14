@@ -1,6 +1,6 @@
-use super::Node;
-
 use crate::dom::gc::WeakDom;
+use crate::dom::iterators::TreeIterator;
+use crate::dom::node::{Node, NodeType};
 
 use std::rc::{Rc, Weak};
 
@@ -57,7 +57,14 @@ impl Document {
         }
 
         if !Weak::ptr_eq(&node.borrow().node_document.upgrade().borrow().owner.inner, &self.owner.inner) {
-            // TODO: finish adopt
+            for descendant in TreeIterator::new(Some(weak_node)).map(|weak| weak.upgrade()) {
+                descendant.borrow_mut().node_document = self.owner.upgrade().borrow().node_document.clone();
+
+                // TODO: step 2: shadow root thing
+
+                if let NodeType::Element(element) = &descendant.borrow().node_type {
+                }
+            }
         }
     }
 }

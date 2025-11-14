@@ -40,6 +40,7 @@ pub struct TreeIterator {
     depth: usize,
 }
 
+// TODO: implement shadow including inclusive descendants
 impl TreeIterator {
     pub fn new(prev: Option<WeakDom<Node>>) -> TreeIterator {
         TreeIterator {
