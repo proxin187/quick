@@ -1,20 +1,23 @@
-use crate::parser::interface::QualifiedName;
-
-use crate::dom::node::Node;
+use crate::dom::node::attribute::Attribute;
+use crate::dom::node::{Node, QualifiedName};
 use crate::dom::gc::WeakDom;
 
-// TODO: move QualifiedName into dom and remove lifetime
 
-// NOTE: here we intentionally ignore node document and element because they arent needed for our
-// implementation.
-pub struct Attribute {
-    qualified_name: QualifiedName<'static>,
-    value: String,
+pub struct CustomElementRegistry {
+    scoped: bool,
 }
 
 pub struct Element {
-    owner: WeakDom<Node>,
-    attributes: Vec<Attribute>,
+    pub owner: WeakDom<Node>,
+    pub name: QualifiedName,
+    pub custom_element_registry: Option<CustomElementRegistry>,
+    pub attributes: Vec<Attribute>,
+}
+
+impl Element {
+    pub fn is_global_custom_element_registry(&self) -> bool {
+        self.custom_element_registry.as_ref().map(|registry| !registry.scoped).unwrap_or_default()
+    }
 }
 
 

@@ -1,6 +1,7 @@
 use crate::dom::gc::WeakDom;
 use crate::dom::iterators::TreeIterator;
 use crate::dom::node::{Node, NodeType};
+use crate::dom::node::element::CustomElementRegistry;
 
 use std::rc::{Rc, Weak};
 
@@ -45,11 +46,13 @@ impl Range {
 
 pub struct Document {
     pub owner: WeakDom<Node>,
+    pub custom_element_registry: Option<CustomElementRegistry>,
     pub ranges: Vec<Range>,
 }
 
 impl Document {
     pub fn adopt(&self, weak_node: WeakDom<Node>) {
+        let document = WeakDom::clone(&self.owner.upgrade().borrow().node_document);
         let node = weak_node.upgrade();
 
         if let Some(parent) = &Rc::clone(&node).borrow().parent {
@@ -58,11 +61,21 @@ impl Document {
 
         if !Weak::ptr_eq(&node.borrow().node_document.upgrade().borrow().owner.inner, &self.owner.inner) {
             for descendant in TreeIterator::new(Some(weak_node)).map(|weak| weak.upgrade()) {
-                descendant.borrow_mut().node_document = self.owner.upgrade().borrow().node_document.clone();
+                descendant.borrow_mut().node_document = WeakDom::clone(&document);
 
                 // TODO: step 2: shadow root thing
 
                 if let NodeType::Element(element) = &descendant.borrow().node_type {
+                    for attribute in element.borrow_mut().attributes.iter_mut() {
+                        attribute.node_document = WeakDom::clone(&document);
+                    }
+
+                    if element.borrow().is_global_custom_element_registry() {
+                        // TODO: figure out how we are to implement is global custom element
+                        // registry on document nodes.
+                        //
+                        // *element.borrow_mut() = document.upgrade().borrow().
+                    }
                 }
             }
         }

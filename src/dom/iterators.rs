@@ -1,5 +1,5 @@
-use super::node::Node;
-use super::gc::WeakDom;
+use crate::dom::node::Node;
+use crate::dom::gc::WeakDom;
 
 
 /// A NodeIterator is an iterator over nodes, a NodeIterator is cheaply cloned.

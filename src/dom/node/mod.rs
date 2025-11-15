@@ -1,5 +1,6 @@
 mod document_fragment;
 mod document;
+mod attribute;
 mod element;
 
 use super::iterators::{NodeIterator, TreeIterator};
@@ -11,6 +12,25 @@ use element::Element;
 
 use std::rc::Rc;
 
+
+/// The local name, namespace and namespace prefix of a node in the DOM tree.
+#[derive(Clone)]
+pub struct QualifiedName {
+    pub namespace: Option<String>,
+    pub namespace_prefix: Option<String>,
+    pub local_name: String,
+}
+
+impl QualifiedName {
+    /// Create a new qualified name with a local_name, namespace and namespace prefix.
+    pub fn new_with_ns(local_name: String, namespace: String, namespace_prefix: Option<String>) -> QualifiedName {
+        QualifiedName {
+            namespace: Some(namespace),
+            namespace_prefix,
+            local_name,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub enum NodeType {
