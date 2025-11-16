@@ -4,7 +4,7 @@ use crate::dom::node::QualifiedName;
 use crate::dom::gc::WeakDom;
 
 
-/// An attribute node, the spec wants Attribute to extend Node, however it not needed.
+/// An attribute node, the spec wants Attribute to extend Node, however its not needed.
 pub struct Attribute {
     owner: WeakDom<Element>,
     pub(crate) node_document: WeakDom<Document>,

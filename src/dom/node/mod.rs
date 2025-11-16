@@ -108,7 +108,7 @@ impl Node {
                 .unwrap_or_else(|| self.last_child.clone());
 
             for node in nodes {
-                self.node_document.upgrade().borrow().adopt(node.clone());
+                Document::adopt(WeakDom::clone(&self.node_document), node.clone());
             }
         }
     }

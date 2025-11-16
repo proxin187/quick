@@ -1,7 +1,7 @@
 use crate::dom::gc::WeakDom;
 use crate::dom::iterators::TreeIterator;
 use crate::dom::node::{Node, NodeType};
-use crate::dom::node::element::CustomElementRegistry;
+use crate::dom::node::element::NullOrCustomElementRegistry;
 
 use std::rc::{Rc, Weak};
 
@@ -46,21 +46,18 @@ impl Range {
 
 pub struct Document {
     pub owner: WeakDom<Node>,
-    pub custom_element_registry: Option<CustomElementRegistry>,
+    pub custom_element_registry: NullOrCustomElementRegistry,
     pub ranges: Vec<Range>,
 }
 
 impl Document {
-    pub fn adopt(&self, weak_node: WeakDom<Node>) {
-        let document = WeakDom::clone(&self.owner.upgrade().borrow().node_document);
-        let node = weak_node.upgrade();
-
-        if let Some(parent) = &Rc::clone(&node).borrow().parent {
-            parent.upgrade().borrow_mut().remove(Rc::clone(&node));
+    pub fn adopt(document: WeakDom<Document>, node: WeakDom<Node>) {
+        if let Some(parent) = &node.upgrade().borrow().parent {
+            parent.upgrade().borrow_mut().remove(node.upgrade());
         }
 
-        if !Weak::ptr_eq(&node.borrow().node_document.upgrade().borrow().owner.inner, &self.owner.inner) {
-            for descendant in TreeIterator::new(Some(weak_node)).map(|weak| weak.upgrade()) {
+        if !Weak::ptr_eq(&node.upgrade().borrow().node_document.upgrade().borrow().owner.inner, &document.upgrade().borrow().owner.inner) {
+            for descendant in TreeIterator::new(Some(WeakDom::clone(&node))).map(|weak| weak.upgrade()) {
                 descendant.borrow_mut().node_document = WeakDom::clone(&document);
 
                 // TODO: step 2: shadow root thing
@@ -70,13 +67,18 @@ impl Document {
                         attribute.node_document = WeakDom::clone(&document);
                     }
 
-                    if element.borrow().is_global_custom_element_registry() {
-                        // TODO: figure out how we are to implement is global custom element
-                        // registry on document nodes.
-                        //
-                        // *element.borrow_mut() = document.upgrade().borrow().
+                    if element.borrow().custom_element_registry.is_global_custom_element_registry() {
+                        // TODO: figure out whether we should return a clone or a reference.
+                        // The name "global custom element registry" suggests we might have to return a
+                        // reference for it to be global across all elements that share it
+                        element.borrow_mut().custom_element_registry = document.upgrade().borrow().custom_element_registry.effective_global_custom_element_registry();
                     }
                 }
+            }
+
+            // TODO: custom element callback reaction
+
+            for descendant in TreeIterator::new(Some(node)).map(|weak| weak.upgrade()) {
             }
         }
     }
