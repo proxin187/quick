@@ -4,7 +4,7 @@ mod attribute;
 mod element;
 
 use super::iterators::{NodeIterator, TreeIterator};
-use super::gc::{OwnedDom, WeakDom};
+use super::arena::{Arena, ArenaId};
 
 use document_fragment::DocumentFragment;
 use document::Document;
@@ -32,20 +32,18 @@ impl QualifiedName {
     }
 }
 
-#[derive(Clone)]
 pub enum NodeType {
-    Element(OwnedDom<Element>),
-    Document(OwnedDom<Document>),
-    DocumentFragment(OwnedDom<DocumentFragment>),
+    Element(Element),
+    Document(Document),
+    DocumentFragment(DocumentFragment),
 }
 
-#[derive(Clone)]
 pub struct Node {
     /// The type of the node.
     node_type: NodeType,
 
     /// The owner document of the node.
-    node_document: WeakDom<Document>,
+    node_document: Weak<Document>,
 
     /// The parent of the node.
     pub(crate) parent: Option<WeakDom<Node>>,

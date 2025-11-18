@@ -1,6 +1,6 @@
 use crate::dom::node::attribute::Attribute;
 use crate::dom::node::{Node, QualifiedName};
-use crate::dom::gc::WeakDom;
+use crate::dom::arena::ArenaId;
 
 
 #[derive(Clone)]
@@ -26,7 +26,7 @@ impl NullOrCustomElementRegistry {
 }
 
 pub struct Element {
-    pub owner: WeakDom<Node>,
+    pub owner: ArenaId,
     pub name: QualifiedName,
     pub custom_element_registry: NullOrCustomElementRegistry,
     pub attributes: Vec<Attribute>,

@@ -1,18 +1,19 @@
-use crate::dom::gc::WeakDom;
+use crate::dom::arena::{self, NodeId};
 use crate::dom::iterators::TreeIterator;
 use crate::dom::node::{Node, NodeType};
 use crate::dom::node::element::NullOrCustomElementRegistry;
 
-use std::rc::{Rc, Weak};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 
 pub struct Boundary {
-    container: WeakDom<Node>,
+    container: NodeId,
     offset: usize,
 }
 
 impl Boundary {
-    pub fn new(container: WeakDom<Node>, offset: usize) -> Boundary {
+    pub fn new(container: NodeId, offset: usize) -> Boundary {
         Boundary {
             container,
             offset,
@@ -33,19 +34,19 @@ impl Range {
         }
     }
 
-    pub fn adjust_offset(&mut self, parent: &WeakDom<Node>, child: &WeakDom<Node>, count: usize) {
-        if Weak::ptr_eq(&self.start.container.inner, &parent.inner) && self.start.offset > child.upgrade().borrow().index() {
+    pub fn adjust_offset(&mut self, parent: NodeId, child: NodeId, count: usize) {
+        if self.start.container == parent && self.start.offset > arena::get(child).index() {
             self.start.offset += count;
         }
 
-        if Weak::ptr_eq(&self.end.container.inner, &parent.inner) && self.end.offset > child.upgrade().borrow().index() {
+        if self.end.container == parent && self.end.offset > arena::get(child).index() {
             self.end.offset += count;
         }
     }
 }
 
 pub struct Document {
-    pub owner: WeakDom<Node>,
+    pub owner: NodeId,
     pub custom_element_registry: NullOrCustomElementRegistry,
     pub ranges: Vec<Range>,
 }
@@ -56,7 +57,7 @@ impl Document {
             parent.upgrade().borrow_mut().remove(node.upgrade());
         }
 
-        if !Weak::ptr_eq(&node.upgrade().borrow().node_document.upgrade().borrow().owner.inner, &document.upgrade().borrow().owner.inner) {
+        if !&node.upgrade().borrow().node_document.upgrade().borrow().owner.ptr_eq(&document.upgrade().borrow().owner) {
             for descendant in TreeIterator::new(Some(WeakDom::clone(&node))).map(|weak| weak.upgrade()) {
                 descendant.borrow_mut().node_document = WeakDom::clone(&document);
 
