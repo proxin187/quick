@@ -24,7 +24,7 @@ impl Iterator for NodeIterator {
     fn next(&mut self) -> Option<NodeId> {
         match &self.prev {
             Some(prev) => {
-                let next = (self.f)(&arena::get(*prev));
+                let next = (self.f)(&arena::get(prev));
 
                 next.map(|next| self.prev.replace(next)).unwrap_or_else(|| self.prev)
             },

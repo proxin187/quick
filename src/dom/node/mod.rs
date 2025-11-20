@@ -3,14 +3,13 @@ mod document;
 mod attribute;
 mod element;
 
-use super::iterators::{NodeIterator, TreeIterator};
-use super::arena::{Arena, ArenaId};
+use crate::dom::iterators::{NodeIterator, TreeIterator};
+use crate::dom::arena::{self, NodeId};
+use crate::dom::inheritance::Downcast;
 
 use document_fragment::DocumentFragment;
 use document::Document;
 use element::Element;
-
-use std::rc::Rc;
 
 
 /// The local name, namespace and namespace prefix of a node in the DOM tree.
@@ -43,84 +42,98 @@ pub struct Node {
     node_type: NodeType,
 
     /// The owner document of the node.
-    node_document: Weak<Document>,
+    node_document: NodeId,
 
     /// The parent of the node.
-    pub(crate) parent: Option<WeakDom<Node>>,
+    pub(crate) parent: Option<NodeId>,
 
     /// Previous sibling of the node.
-    pub(crate) previous_sibling: Option<WeakDom<Node>>,
+    pub(crate) previous_sibling: Option<NodeId>,
 
     /// Next sibling of the node.
-    pub(crate) next_sibling: Option<OwnedDom<Node>>,
+    pub(crate) next_sibling: Option<NodeId>,
 
     /// The first child of the node.
-    pub(crate) first_child: Option<OwnedDom<Node>>,
+    pub(crate) first_child: Option<NodeId>,
 
     /// The last child of the node.
-    last_child: Option<WeakDom<Node>>,
+    last_child: Option<NodeId>,
 
     /// The count of children of the node.
     child_count: usize,
 }
 
 impl Node {
-    fn first_descendant(node: OwnedDom<Node>) -> OwnedDom<Node> {
-        let first_child = node.borrow().first_child.clone();
+    fn first_descendant(node: NodeId) -> NodeId {
+        let first_child = arena::get(node).first_child;
 
         first_child.map(|child| Node::first_descendant(child)).unwrap_or(node)
     }
 
     pub fn descendants(&self) -> TreeIterator {
-        TreeIterator::new(self.first_child.clone().map(|child| WeakDom::new_from_owned(Node::first_descendant(child))))
+        TreeIterator::new(self.first_child.map(|child| Node::first_descendant(child)))
     }
 
     pub fn children(&self) -> NodeIterator {
-        NodeIterator::new(self.first_child.clone().map(|node| WeakDom::new_from_owned(node)), |node| node.next_sibling.clone().map(|node| WeakDom::new_from_owned(node)))
+        NodeIterator::new(self.first_child, |node| node.next_sibling)
     }
 
     pub fn index(&self) -> usize {
-        NodeIterator::new(self.previous_sibling.clone(), |node| node.previous_sibling.clone())
-            .count()
+        NodeIterator::new(self.previous_sibling, |node| node.previous_sibling).count()
     }
 
-    fn insert(&mut self, new_node: OwnedDom<Node>, child: Option<WeakDom<Node>>) {
-        let nodes = matches!(new_node.borrow().node_type, NodeType::DocumentFragment(_))
-            .then(|| new_node.borrow().children().collect::<Vec<WeakDom<Node>>>())
-            .unwrap_or_else(|| vec![WeakDom::new_from_owned(Rc::clone(&new_node))]);
+    #[inline]
+    pub fn downcast_ref<T: Downcast<Node>>(&self) -> &T {
+        T::downcast_ref(self)
+    }
+
+    #[inline]
+    pub fn downcast_mut<T: Downcast<Node>>(&mut self) -> &mut T {
+        T::downcast_mut(self)
+    }
+
+    // TODO: finish insert
+    pub fn insert(&mut self, new_node: NodeId, child: Option<NodeId>) {
+        let nodes = matches!(arena::get(new_node).node_type, NodeType::DocumentFragment(_))
+            .then(|| arena::get(new_node).children().collect::<Vec<NodeId>>())
+            .unwrap_or_else(|| vec![new_node]);
 
         if nodes.len() > 0  {
-            if let NodeType::DocumentFragment(_) = new_node.borrow().node_type {
-                for node in &nodes {
-                    new_node.borrow_mut().remove(node.upgrade());
+            arena::with_mut(new_node, |new_node| {
+                if let NodeType::DocumentFragment(_) = new_node.node_type {
+                    for node in &nodes {
+                        new_node.remove(*node);
+                    }
                 }
+            });
+
+            if let Some(parent) = self.parent && let Some(child) = child {
+                arena::with_mut(self.node_document, |node_document| {
+                    for range in node_document.downcast_mut::<Document>().ranges.iter_mut() {
+                        range.adjust_offset(parent, child, nodes.len());
+                    }
+                });
             }
 
-            if let Some(parent) = &self.parent && let Some(child) = &child {
-                for range in self.node_document.upgrade().borrow_mut().ranges.iter_mut() {
-                    range.adjust_offset(parent, child, nodes.len());
-                }
-            }
-
-            let previous_sibling = child.map(|node| node.upgrade().borrow().previous_sibling.clone())
+            let previous_sibling = child.map(|node| arena::get(node).previous_sibling)
                 .unwrap_or_else(|| self.last_child.clone());
 
             for node in nodes {
-                Document::adopt(WeakDom::clone(&self.node_document), node.clone());
+                Document::adopt(self.node_document, node);
             }
         }
     }
 
-    fn pre_insert(&mut self, node: Node, child: OwnedDom<Node>) {
+    fn pre_insert(&mut self, node: Node, child: NodeId) {
     }
 
-    fn remove(&mut self, node: OwnedDom<Node>) {
+    fn remove(&mut self, node: NodeId) {
     }
 
     pub fn append(&mut self, node: Node) {
     }
 
-    pub fn insert_before(&mut self, node: OwnedDom<Node>, child: Option<Node>) {
+    pub fn insert_before(&mut self, node: NodeId, child: Option<Node>) {
     }
 }
 

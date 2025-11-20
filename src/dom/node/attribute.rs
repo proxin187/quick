@@ -1,13 +1,12 @@
 use crate::dom::node::element::Element;
 use crate::dom::node::document::Document;
 use crate::dom::node::QualifiedName;
-use crate::dom::gc::WeakDom;
+use crate::dom::arena::NodeId;
 
 
 /// An attribute node, the spec wants Attribute to extend Node, however its not needed.
 pub struct Attribute {
-    owner: WeakDom<Element>,
-    pub(crate) node_document: WeakDom<Document>,
+    pub(crate) node_document: NodeId,
     pub(crate) name: QualifiedName,
     pub(crate) value: String,
 }

@@ -1,13 +1,14 @@
 use crate::dom::node::Node;
 
 use std::cell::{RefCell, Ref};
+use std::borrow::Borrow;
 
 
 thread_local! {
     static ARENA: RefCell<Vec<RefCell<Node>>> = RefCell::new(Vec::new());
 }
 
-/// NodeId is an index to an element inside the arena.
+/// NodeId is an index to a node inside the arena.
 #[derive(Clone, Copy, PartialEq)]
 pub struct NodeId(usize);
 
@@ -21,11 +22,20 @@ pub fn insert(node: Node) -> NodeId {
     })
 }
 
-// TODO: double check that this is actually safe
-/// Get a node from the arena.
+/// Get a reference to a node from the arena.
 #[inline]
-pub fn get<'a>(id: NodeId) -> Ref<'a, Node> {
-    ARENA.with_borrow(|arena| unsafe { std::mem::transmute(arena[id.0].borrow()) })
+pub fn get<T: Borrow<NodeId>>(id: T) -> Ref<'static, Node> {
+    ARENA.with_borrow(|arena| unsafe {
+        std::mem::transmute::<Ref<'_, Node>, Ref<'static, Node>>(arena[id.borrow().0].borrow())
+    })
+}
+
+/// Safely mutate a node from the arena.
+#[inline]
+pub fn with_mut<A: Borrow<NodeId>, B>(id: A, f: impl FnOnce(&mut Node) -> B) -> B {
+    ARENA.with_borrow(|arena| {
+        f(&mut arena[id.borrow().0].borrow_mut())
+    })
 }
 
 
