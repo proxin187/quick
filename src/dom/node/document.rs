@@ -68,11 +68,13 @@ impl Downcast<Node> for Document {
 
 impl Document {
     pub fn adopt(document: NodeId, node: NodeId) {
+        let old_document = arena::get(node).node_document;
+
         if let Some(parent) = arena::get(node).parent {
             arena::with_mut(parent, |parent| parent.remove(node));
         }
 
-        if arena::get(node).node_document != document {
+        if document != old_document {
             for descendant in TreeIterator::new(Some(node)) {
                 arena::with_mut(descendant, |descendant| {
                     descendant.node_document = document;
@@ -98,8 +100,8 @@ impl Document {
 
             // TODO: custom element callback reaction
 
-            for descendant in TreeIterator::new(Some(node)) {
-            }
+            // TODO: currently we dont have shadow root elements, when we implement shadow root
+            // elements we will have to iterate over them here and run the adopting steps
         }
     }
 }

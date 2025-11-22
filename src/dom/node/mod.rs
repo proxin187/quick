@@ -82,16 +82,6 @@ impl Node {
         NodeIterator::new(self.previous_sibling, |node| node.previous_sibling).count()
     }
 
-    #[inline]
-    pub fn downcast_ref<T: Downcast<Node>>(&self) -> &T {
-        T::downcast_ref(self)
-    }
-
-    #[inline]
-    pub fn downcast_mut<T: Downcast<Node>>(&mut self) -> &mut T {
-        T::downcast_mut(self)
-    }
-
     // TODO: finish insert
     pub fn insert(&mut self, new_node: NodeId, child: Option<NodeId>) {
         let nodes = matches!(arena::get(new_node).node_type, NodeType::DocumentFragment(_))
@@ -120,7 +110,43 @@ impl Node {
 
             for node in nodes {
                 Document::adopt(self.node_document, node);
+
+                if let Some(child) = child {
+                    self.insert_before(node, child);
+                } else {
+                    self.append(node);
+                }
             }
+        }
+    }
+
+    fn append(&mut self, node: NodeId) {
+        if let Some(first_child) = self.first_child {
+            let previous = self.last_child.unwrap_or(first_child);
+
+            arena::with_mut(previous, |previous| previous.next_sibling = Some(node));
+
+            arena::with_mut(node, |node| node.previous_sibling = Some(previous));
+
+            self.last_child = Some(node);
+        } else {
+            self.first_child = Some(node);
+        }
+    }
+
+    fn insert_before(&mut self, node: NodeId, before: NodeId) {
+        if let Some(previous_sibling) = arena::get(before).previous_sibling {
+            arena::with_mut(previous_sibling, |previous_sibling| previous_sibling.next_sibling = Some(node));
+
+            arena::with_mut(node, |node| {
+                node.previous_sibling = Some(previous_sibling);
+
+                node.next_sibling = Some(before);
+            });
+
+            arena::with_mut(before, |before| before.previous_sibling = Some(node));
+        } else {
+            self.first_child = Some(node);
         }
     }
 
@@ -128,12 +154,6 @@ impl Node {
     }
 
     fn remove(&mut self, node: NodeId) {
-    }
-
-    pub fn append(&mut self, node: Node) {
-    }
-
-    pub fn insert_before(&mut self, node: NodeId, child: Option<Node>) {
     }
 }
 

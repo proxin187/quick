@@ -1,3 +1,4 @@
+use crate::dom::node::Node;
 
 
 /// private module for sealed trait.
@@ -12,6 +13,17 @@ pub trait Downcast<T>: private::Sealed {
     fn downcast_ref(value: &T) -> &Self;
 
     fn downcast_mut(value: &mut T) -> &mut Self;
+}
+
+impl Node {
+    pub fn downcast_ref<T: Downcast<Node>>(&self) -> &T {
+        T::downcast_ref(self)
+    }
+
+    pub fn downcast_mut<T: Downcast<Node>>(&mut self) -> &mut T {
+        T::downcast_mut(self)
+    }
+
 }
 
 
