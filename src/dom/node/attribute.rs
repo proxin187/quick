@@ -1,5 +1,3 @@
-use crate::dom::node::element::Element;
-use crate::dom::node::document::Document;
 use crate::dom::node::QualifiedName;
 use crate::dom::arena::NodeId;
 

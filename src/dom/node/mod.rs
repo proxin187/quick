@@ -1,15 +1,16 @@
-mod document_fragment;
-mod document;
+pub mod document_fragment;
+pub mod document;
+pub mod element;
+pub mod comment;
 mod attribute;
-mod element;
 
 use crate::dom::iterators::{NodeIterator, TreeIterator};
 use crate::dom::arena::{self, NodeId};
-use crate::dom::inheritance::Downcast;
 
 use document_fragment::DocumentFragment;
 use document::Document;
 use element::Element;
+use comment::Comment;
 
 
 /// The local name, namespace and namespace prefix of a node in the DOM tree.
@@ -35,14 +36,15 @@ pub enum NodeType {
     Element(Element),
     Document(Document),
     DocumentFragment(DocumentFragment),
+    Comment(Comment),
 }
 
 pub struct Node {
     /// The type of the node.
-    node_type: NodeType,
+    pub(crate) node_type: NodeType,
 
     /// The owner document of the node.
-    node_document: NodeId,
+    pub(crate) node_document: NodeId,
 
     /// The parent of the node.
     pub(crate) parent: Option<NodeId>,
@@ -57,17 +59,32 @@ pub struct Node {
     pub(crate) first_child: Option<NodeId>,
 
     /// The last child of the node.
-    last_child: Option<NodeId>,
+    pub(crate) last_child: Option<NodeId>,
 
     /// The count of children of the node.
-    child_count: usize,
+    pub(crate) child_count: usize,
 }
 
 impl Node {
-    fn first_descendant(node: NodeId) -> NodeId {
-        let first_child = arena::get(node).first_child;
+    pub fn new(node_type: NodeType, node_document: NodeId) -> Node {
+        Node {
+            node_type,
+            node_document,
+            parent: None,
+            previous_sibling: None,
+            next_sibling: None,
+            first_child: None,
+            last_child: None,
+            child_count: 0,
+        }
+    }
 
-        first_child.map(|child| Node::first_descendant(child)).unwrap_or(node)
+    pub fn first_descendant(node: NodeId) -> NodeId {
+        arena::get(node).first_child.map(|child| Node::first_descendant(child)).unwrap_or(node)
+    }
+
+    pub fn root(node: NodeId) -> NodeId {
+        arena::get(node).parent.map(|parent| Node::root(parent)).unwrap_or(node)
     }
 
     pub fn descendants(&self) -> TreeIterator {
@@ -82,7 +99,6 @@ impl Node {
         NodeIterator::new(self.previous_sibling, |node| node.previous_sibling).count()
     }
 
-    // TODO: finish insert
     pub fn insert(&mut self, new_node: NodeId, child: Option<NodeId>) {
         let nodes = matches!(arena::get(new_node).node_type, NodeType::DocumentFragment(_))
             .then(|| arena::get(new_node).children().collect::<Vec<NodeId>>())
@@ -105,8 +121,9 @@ impl Node {
                 });
             }
 
-            let previous_sibling = child.map(|node| arena::get(node).previous_sibling)
-                .unwrap_or_else(|| self.last_child.clone());
+            // NOTE: previous sibling is only used with the shadow root related steps
+            // let previous_sibling = child.map(|node| arena::get(node).previous_sibling)
+            //    .unwrap_or_else(|| self.last_child.clone());
 
             for node in nodes {
                 Document::adopt(self.node_document, node);
@@ -116,6 +133,13 @@ impl Node {
                 } else {
                     self.append(node);
                 }
+
+                // TODO: implement step 4, 5, 6, and 7 once we have shadow root elements
+
+                // TODO: children changed steps will have to mark the children as dirty when we are
+                // to render the next layout tree
+
+                // TODO: implement step 10, 11, and 12 once we have shadow root elements
             }
         }
     }
@@ -132,6 +156,8 @@ impl Node {
         } else {
             self.first_child = Some(node);
         }
+
+        self.child_count += 1;
     }
 
     fn insert_before(&mut self, node: NodeId, before: NodeId) {
@@ -147,7 +173,15 @@ impl Node {
             arena::with_mut(before, |before| before.previous_sibling = Some(node));
         } else {
             self.first_child = Some(node);
+
+            arena::with_mut(node, |node| node.next_sibling = Some(before));
+
+            if self.last_child.is_none() {
+                self.last_child = Some(before);
+            }
         }
+
+        self.child_count += 1;
     }
 
     fn pre_insert(&mut self, node: Node, child: NodeId) {

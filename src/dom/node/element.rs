@@ -11,7 +11,7 @@ struct CustomElementRegistry {
     scoped: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct NullOrCustomElementRegistry {
     registry: Option<Rc<RefCell<CustomElementRegistry>>>,
 }

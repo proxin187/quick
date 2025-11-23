@@ -43,6 +43,7 @@ impl Range {
     }
 }
 
+#[derive(Default)]
 pub struct Document {
     pub custom_element_registry: NullOrCustomElementRegistry,
     pub ranges: Vec<Range>,
@@ -75,6 +76,7 @@ impl Document {
         }
 
         if document != old_document {
+            // TODO: this will have to be shadow-inclusive
             for descendant in TreeIterator::new(Some(node)) {
                 arena::with_mut(descendant, |descendant| {
                     descendant.node_document = document;
@@ -89,9 +91,6 @@ impl Document {
                         if element.custom_element_registry.is_global_custom_element_registry() {
                             let registry = arena::get(document).downcast_ref::<Document>().custom_element_registry.clone();
 
-                            // TODO: figure out whether we should return a clone or a reference.
-                            // The name "global custom element registry" suggests we might have to return a
-                            // reference for it to be global across all elements that share it
                             element.custom_element_registry = registry.effective_global_custom_element_registry();
                         }
                     }

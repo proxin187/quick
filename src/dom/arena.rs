@@ -9,7 +9,7 @@ thread_local! {
 }
 
 /// NodeId is an index to a node inside the arena.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NodeId(usize);
 
 /// Insert a node into the arena.
@@ -17,6 +17,16 @@ pub struct NodeId(usize);
 pub fn insert(node: Node) -> NodeId {
     ARENA.with_borrow_mut(|arena| {
         arena.push(RefCell::new(node));
+
+        NodeId(arena.len() - 1)
+    })
+}
+
+/// Insert a cyclic node into the arena.
+#[inline]
+pub fn insert_cyclic(f: impl Fn(NodeId) -> Node) -> NodeId {
+    ARENA.with_borrow_mut(|arena| {
+        arena.push(RefCell::new(f(NodeId(arena.len()))));
 
         NodeId(arena.len() - 1)
     })
