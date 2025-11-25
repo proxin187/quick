@@ -155,7 +155,6 @@ impl<Sink: TreeSink> TreeBuilder<Sink> {
         element
     }
 
-    // TODO: custom elements reaction stack
     fn insert_at(&mut self, element: &Sink::Handle, adjusted_insertion_location: InsertionPoint<Sink::Handle>) {
         match adjusted_insertion_location {
             InsertionPoint::LastChild(mut handle) => handle.append(element),

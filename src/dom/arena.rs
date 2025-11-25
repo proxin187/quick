@@ -2,6 +2,7 @@ use crate::dom::node::Node;
 
 use std::cell::{RefCell, Ref};
 use std::borrow::Borrow;
+use std::ops::Index;
 
 
 thread_local! {
@@ -11,6 +12,36 @@ thread_local! {
 /// NodeId is an index to a node inside the arena.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NodeId(usize);
+
+pub struct Arena {
+    nodes: Vec<Node>,
+}
+
+impl Index<NodeId> for Arena {
+    type Output = Node;
+
+    fn index(&self, id: NodeId) -> &Node {
+        &self.nodes[id.0]
+    }
+}
+
+impl Arena {
+    pub fn new() -> Arena {
+        Arena {
+            nodes: Vec::new(),
+        }
+    }
+
+    pub fn insert(&mut self, node: Node) -> NodeId {
+        self.nodes.push(node);
+
+        NodeId(self.nodes.len() - 1)
+    }
+
+    pub fn with_mut(&mut self, id: NodeId, f: impl FnOnce(&mut Node)) {
+        f(&mut self.nodes[id.0])
+    }
+}
 
 /// Insert a node into the arena.
 #[inline]
